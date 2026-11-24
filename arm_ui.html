@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO-101 Arm Control</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #14181f; --muted: #5f6b7a; --line: #e1e5eb;
+    --track: #e7ebf0; --accent: #2563eb; --accent-soft: #dbe6fd; --ok: #15803d; --ok-soft: #dcf2e3;
+    --warn: #b45309; --warn-soft: #fdf0d9; --bad: #c62828; --bad-soft: #fde3e3; --present: #14181f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1116; --card: #161a21; --text: #e5e9ef; --muted: #96a1b0; --line: #262d37;
+      --track: #232a34; --accent: #6b9bff; --accent-soft: #1d2a45; --ok: #4ade80; --ok-soft: #14301f;
+      --warn: #fbbf24; --warn-soft: #3a2c10; --bad: #f87171; --bad-soft: #3b1717; --present: #e5e9ef;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1180px; margin: 0 auto; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+  h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+  .speed { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .speed input { width: 140px; }
+  .actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+           padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+  kbd { font: 11px ui-monospace, monospace; padding: 1px 5px; border: 1px solid currentColor; border-radius: 4px; opacity: .8; margin-left: 4px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  .notice { display: none; margin-bottom: 14px; padding: 10px 14px; border-radius: 10px; font-size: 13px; }
+  .notice.show { display: block; }
+  .notice.warn { background: var(--warn-soft); color: var(--warn); }
+  .notice.bad { background: var(--bad-soft); color: var(--bad); }
+  .notice.sim { background: #7c3aed; color: #fff; font-size: 14px; }
+  .notice.sim a, .notice.sim code { color: #fff; }
+  .conn.sim { color: #a78bfa; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 16px; }
+  .card.offline { opacity: .55; }
+  .card.torqued { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .idtag { font: 600 12px ui-monospace, monospace; background: var(--accent-soft); color: var(--accent);
+           border-radius: 6px; padding: 2px 7px; }
+  .name { font-weight: 650; font-size: 15px; }
+  .role { color: var(--muted); font-size: 12px; }
+  .switch { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  .switch input { display: none; }
+  .knob { width: 36px; height: 20px; border-radius: 10px; background: var(--track); position: relative; transition: background .15s; }
+  .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+                 background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
+  .switch input:checked + .knob { background: var(--accent); }
+  .switch input:checked + .knob::after { left: 18px; }
+  .switch.disabled { opacity: .4; pointer-events: none; }
+  .readout { display: flex; align-items: baseline; gap: 10px; margin: 12px 0 4px; }
+  .deg { font: 600 28px/1 ui-monospace, "Cascadia Mono", monospace; font-variant-numeric: tabular-nums; }
+  .steps { color: var(--muted); font: 13px ui-monospace, monospace; }
+  .goaltxt { margin-left: auto; color: var(--accent); font: 12px ui-monospace, monospace; }
+  .slider { position: relative; margin: 12px 0 2px; }
+  .slider input { width: 100%; margin: 0; accent-color: var(--accent); }
+  .present { position: absolute; top: -6px; width: 2px; height: 8px; background: var(--present); border-radius: 1px; transform: translateX(-1px); pointer-events: none; }
+  .scale { display: flex; justify-content: space-between; color: var(--muted); font: 11px ui-monospace, monospace; }
+  .jog { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  .jog button { padding: 6px 0; font-variant-numeric: tabular-nums; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  .stat { background: var(--bg); border-radius: 8px; padding: 6px 8px; }
+  .stat b { display: block; font: 600 13px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11px; }
+  .stat.hot b { color: var(--warn); } .stat.alarm b { color: var(--bad); }
+  .meta { margin-top: 10px; color: var(--muted); font-size: 11px; }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); max-width: min(640px, calc(100% - 32px));
+           background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+           box-shadow: 0 6px 20px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  #toast.show { opacity: 1; }
+  #toast.good { background: var(--ok); }
+
+  /* tabs */
+  .tabs { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 9px; }
+  .tabs button { border: 0; background: transparent; padding: 6px 12px; border-radius: 7px; color: var(--muted); position: relative; }
+  .tabs button.active { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+  .tabs .pip { display: none; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+  .tabs .pip.show { display: block; }
+  body.on-cal .control-only { display: none !important; }
+  .panel[hidden] { display: none; }
+
+  /* calibration */
+  .calwrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 960px; }
+  .calwrap .card { min-width: 0; }
+  .stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stepper div { padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .stepper b { display: block; font-size: 13px; color: var(--text); margin-bottom: 2px; }
+  .stepper .now { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+  .stepper .done b::before { content: "✓ "; color: var(--ok); }
+  .calpanel h2, .card h2 { font-size: 16px; margin: 0 0 6px; }
+  .calpanel p { margin: 0 0 10px; color: var(--muted); }
+  .calpanel ol { margin: 0 0 10px; padding-left: 20px; color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .row .spacer { flex: 1; }
+  .input { font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); width: 180px; }
+  .tablewrap { overflow-x: auto; margin-top: 10px; }
+  table.cal { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.cal th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.cal td { padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.cal .num { font-family: ui-monospace, "Cascadia Mono", monospace; text-align: right; font-variant-numeric: tabular-nums; }
+  table.cal th.num { text-align: right; }
+  .ok-txt { color: var(--ok); } .warn-txt { color: var(--warn); } .muted { color: var(--muted); }
+  .meter { position: relative; height: 8px; background: var(--track); border-radius: 4px; min-width: 120px; }
+  .meter i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
+  .meter i.full { background: var(--ok); }
+  .meter u { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--present); transform: translateX(-1px); }
+  .confirm { display: none; margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); }
+  .confirm.show { display: block; }
+  .confirm .row { margin-top: 10px; }
+  .meter b { position: absolute; top: 0; width: 8px; height: 8px; background: var(--warn); transform: translateX(-50%) rotate(45deg); }
+  .meter i.seen { background: var(--accent); opacity: .4; }
+  .seg { display: inline-flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: 9px; margin: 4px 0 12px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 12px; border-radius: 7px; }
+  .seg button.active { background: var(--accent); color: #fff; }
+  .hint { color: var(--muted); font-size: 12px; white-space: normal; min-width: 160px; }
+  .near { color: var(--ok); font-weight: 600; }
+  .paths { margin: 8px 0 0; padding-left: 18px; font: 12px ui-monospace, monospace; color: var(--muted); word-break: break-all; }
+
+  @media (max-width: 560px) {
+    .stepper { grid-template-columns: repeat(2, 1fr); }
+    .actions { margin-left: 0; width: 100%; }
+    .actions button { flex: 1; white-space: nowrap; }
+    .actions kbd { display: none; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>SO-101 Arm Control</h1>
+    <nav class="tabs">
+      <button data-tab="control" class="active">Control</button>
+      <button data-tab="remote">Remote</button>
+      <button data-tab="cal">Calibration<span class="pip" id="calpip"></span></button>
+    </nav>
+    <span class="conn"><span class="dot" id="conndot"></span><span id="conntext">connecting…</span></span>
+    <label class="speed control-only">Speed
+      <input type="range" id="speed" min="2" max="120" step="1" value="20">
+      <span id="speedval">20 °/s</span>
+    </label>
+    <div class="actions">
+      <button class="primary control-only" id="enableAll">Torque on all</button>
+      <button class="control-only" id="holdAll">Hold all<kbd>Space</kbd></button>
+      <button class="danger" id="limpAll">Torque off all<kbd>Esc</kbd></button>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="notice sim" id="simnotice"><b>SIMULATOR — this page is not connected to your arm.</b> Moving the real arm won't change anything here. For the real arm, run <code>python arm_ui.py</code> and open <a href="http://127.0.0.1:8101">http://127.0.0.1:8101</a>.</div>
+  <div class="notice bad" id="stalenotice"></div>
+  <div class="notice bad" id="offnotice">No motors are answering. Check that the servo power supply is plugged in and the adapter jumper is in position A.</div>
+
+  <section class="panel" id="panel-control">
+    <div class="notice warn" id="calrunning">A calibration is in progress, so motion is locked. Finish or cancel it on the <b>Calibration</b> tab.</div>
+    <div class="notice warn" id="calnotice">Joints aren't calibrated yet, so each motor accepts its full 0–4095 range and the degree readings are relative to raw step 2047, not the real joint centre. Move slowly, in small steps, and keep a hand near <b>Torque off all</b>.</div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="panel" id="panel-remote" hidden>
+    <div class="calwrap">
+      <div class="card">
+        <h2>PlayStation controller</h2>
+        <p id="rmStatus" class="muted" style="margin:0 0 6px"></p>
+        <div class="notice warn show" style="margin:8px 0">No deadman: joints move only while you push a stick or button, and stop when you let go. After starting, release everything once before it responds. <b>X</b> = close gripper, <b>O</b> = open, <b>L1</b> / <b>L2</b> = rotate the wrist, D-pad ↑/↓ = speed scale. <b>PS</b> = hold all, <b>Options</b> = all limp and remote off. Joint style sticks: left X/Y = base/shoulder, right Y/X = elbow/wrist pitch.</div>
+        <div class="seg" id="rmStyle"><button data-style="joint">Joint by joint</button><button data-style="cartesian">Cartesian (IK)</button></div>
+        <p class="muted" id="rmCartNote" style="margin:0 0 6px;font-size:12px"></p>
+        <div class="notice bad" id="rmMsg"></div>
+        <div class="row" style="margin-top:6px">
+          <button class="primary" id="rmEnable">Start remote mode</button>
+          <button id="rmDisable">Stop remote mode</button>
+          <span class="spacer"></span>
+          <span class="muted">Speed scale <b id="rmScale"></b>×</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Joints in remote mode</h2>
+        <p class="muted" style="margin:0 0 10px"><b>Active</b> = the stick drives it. <b>Hold</b> = torque on, stays put (still draws current). <b>Limp</b> = torque off, cool, but joints 4 and 5 will let the arm sag.</p>
+        <div class="tablewrap"><table class="cal" id="rmTable"></table></div>
+      </div>
+      <div class="card">
+        <h2>Raw controller input</h2>
+        <p class="muted" style="margin:0 0 6px">To check the button mapping: move a stick or press a button and see which number changes.</p>
+        <pre id="rmRaw" style="margin:0;font:12px ui-monospace,monospace;white-space:pre-wrap"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-cal" hidden>
+    <div class="calwrap">
+      <div class="stepper" id="stepper">
+        <div data-step="idle"><b>1 · Start</b>Torque off, reset offsets</div>
+        <div data-step="posing"><b>2 · Middle pose</b>Every joint mid-range</div>
+        <div data-step="recording"><b>3 · Ranges</b>Move each joint end to end</div>
+        <div data-step="done"><b>4 · Saved</b>Limits written, file saved</div>
+      </div>
+      <div class="card calpanel" id="calbody"></div>
+      <div class="card">
+        <h2>Calibration on the motors now</h2>
+        <div class="tablewrap"><table class="cal" id="curtable">
+          <thead><tr><th>ID</th><th>Joint</th><th class="num">Homing offset</th><th class="num">Limit window</th><th class="num">Travel</th><th class="num">Design travel</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <p class="muted" id="fileinfo" style="margin:10px 0 0;font-size:12px"></p>
+      </div>
+      <div class="card">
+        <h2>Motor settings check</h2>
+        <p class="muted" style="margin:0 0 10px">Reads every setting from all six motors (nothing is written) and highlights values that differ from the others. Use it when a joint won't calibrate.</p>
+        <button id="readSettings">Read motor settings</button>
+        <div id="settingsFlags"></div>
+        <div class="tablewrap"><table class="cal" id="settingsTable"></table></div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const ROLES = { gripper: "end effector", wrist_roll: "wrist twist", wrist_flex: "wrist pitch",
+                elbow_flex: "forearm bend", shoulder_lift: "upper arm up/down", shoulder_pan: "base rotation" };
+const JOGS = [-5, -1, 1, 5];
+let state = null, cards = {}, dragging = {}, lastSend = {}, pending = {};
+
+const $ = (id) => document.getElementById(id);
+const fmtDeg = (steps, spd) => ((steps - 2047) / spd).toFixed(1) + "°";
+
+function toast(msg, good = false) {
+  const t = $("toast"); t.textContent = msg; t.classList.toggle("good", good); t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 5000);
+}
+
+async function api(cmd, body = {}) {
+  try {
+    const r = await fetch("/api/" + cmd, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.ok) toast(j.error);
+    return j;
+  } catch (e) { toast("Server not reachable: " + e.message); return { ok: false }; }
+}
+
+function buildCard(m) {
+  const el = document.createElement("section");
+  el.className = "card";
+  el.innerHTML = `
+    <div class="head">
+      <span class="idtag">ID ${m.id}</span>
+      <div><div class="name">${m.name}</div><div class="role">${ROLES[m.name] || ""}</div></div>
+      <label class="switch"><span class="tlabel">Torque off</span><input type="checkbox"><span class="knob"></span></label>
+    </div>
+    <div class="readout"><span class="deg">—</span><span class="steps">—</span><span class="goaltxt"></span></div>
+    <div class="slider"><input type="range" step="1"><div class="present"></div></div>
+    <div class="scale"><span class="lo"></span><span class="hi"></span></div>
+    <div class="jog">${JOGS.map(d => `<button data-deg="${d}">${d > 0 ? "+" : "−"}${Math.abs(d)}°</button>`).join("")}</div>
+    <div class="stats">
+      <div class="stat s-load"><b>—</b><span>load</span></div>
+      <div class="stat s-temp"><b>—</b><span>temp</span></div>
+      <div class="stat s-volt"><b>—</b><span>supply</span></div>
+      <div class="stat s-spd"><b>—</b><span>speed</span></div>
+    </div>
+    <div class="meta"></div>`;
+  const c = {
+    el, sw: el.querySelector(".switch input"), swl: el.querySelector(".switch"), tlabel: el.querySelector(".tlabel"),
+    deg: el.querySelector(".deg"), steps: el.querySelector(".steps"), goal: el.querySelector(".goaltxt"),
+    range: el.querySelector(".slider input"), present: el.querySelector(".present"),
+    lo: el.querySelector(".lo"), hi: el.querySelector(".hi"), jogs: el.querySelectorAll(".jog button"),
+    load: el.querySelector(".s-load"), temp: el.querySelector(".s-temp"), volt: el.querySelector(".s-volt"),
+    spd: el.querySelector(".s-spd"), meta: el.querySelector(".meta"),
+  };
+  c.sw.addEventListener("change", async () => {
+    const on = c.sw.checked;
+    const r = await api("torque", { id: m.id, on });
+    if (!r.ok) c.sw.checked = !on;
+  });
+  const sendGoal = (final) => {
+    const now = performance.now(), pos = Number(c.range.value);
+    if (!final && now - (lastSend[m.id] || 0) < 60) {           // throttle drags to ~16 Hz
+      clearTimeout(pending[m.id]); pending[m.id] = setTimeout(() => sendGoal(true), 70); return;
+    }
+    clearTimeout(pending[m.id]); lastSend[m.id] = now;
+    api("goal", { id: m.id, pos });
+  };
+  c.range.addEventListener("pointerdown", () => dragging[m.id] = true);
+  c.range.addEventListener("input", () => sendGoal(false));
+  c.range.addEventListener("change", () => { sendGoal(true); dragging[m.id] = false; });
+  window.addEventListener("pointerup", () => setTimeout(() => dragging[m.id] = false, 150));
+  c.jogs.forEach(b => b.addEventListener("click", () => api("jog", { id: m.id, deg: Number(b.dataset.deg) })));
+  $("grid").appendChild(el);
+  return c;
+}
+
+function render(s) {
+  const spd = s.steps_per_deg;
+  const online = s.motors.filter(m => m.online);
+  const poll = s.poll || { age: 0, hz: null, error: null };  // older server without the heartbeat
+  const stale = poll.age === null || poll.age > 1.0;
+  $("conndot").className = "dot " + (online.length && !stale ? "on" : "off");
+  $("conntext").textContent = `${s.sim ? "SIMULATOR (not your arm)" : s.port} · ${online.length}/6 motors · ` +
+    (stale ? "readings stopped" : poll.hz === null ? "live" : `live ${Math.round(poll.hz)} Hz`);
+  $("conntext").parentElement.classList.toggle("sim", s.sim);
+  $("simnotice").classList.toggle("show", s.sim);
+  document.title = s.sim ? "SIMULATOR · SO-101 Arm Control" : "SO-101 Arm Control";
+  const staleMsg = stale ? `Readings have stopped updating (last update ${poll.age === null ? "never" : poll.age.toFixed(1) + " s ago"}). Restart arm_ui.py.` : "";
+  $("stalenotice").textContent = poll.error ? `Reading error: ${poll.error}. Still retrying. ${staleMsg}` : staleMsg;
+  $("stalenotice").classList.toggle("show", stale || !!poll.error);
+  $("offnotice").classList.toggle("show", online.length === 0);
+  const calIds = ["posing", "recording"].includes(s.cal.phase) ? (s.cal.ids || []) : [];
+  const calActive = calIds.length > 0;
+  $("calrunning").innerHTML = calIds.length >= 6
+    ? "A calibration of all joints is in progress, so motion is locked. Finish or cancel it on the <b>Calibration</b> tab."
+    : `<b>${calIds.map(i => s.motors[i - 1].name).join(", ")}</b> is being calibrated, so it's locked. The other joints still work, so you can turn them on to hold the arm up.`;
+  $("calrunning").classList.toggle("show", calActive);
+  $("calnotice").classList.toggle("show", !calActive && online.some(m => m.lo === 0 && m.hi === 4095));
+  $("calpip").classList.toggle("show", calActive);
+  renderCal(s);
+  if (document.activeElement !== $("speed")) { $("speed").value = s.speed_dps; $("speedval").textContent = Math.round(s.speed_dps) + " °/s"; }
+
+  for (const m of s.motors) {
+    const c = cards[m.id] || (cards[m.id] = buildCard(m));
+    c.el.classList.toggle("offline", !m.online);
+    c.el.classList.toggle("torqued", m.online && m.torque);
+    c.swl.classList.toggle("disabled", !m.online);
+    if (document.activeElement !== c.sw) c.sw.checked = m.torque;
+    c.tlabel.textContent = !m.online ? "offline" : m.torque ? "Torque on" : "Torque off";
+
+    const lo = m.lo, hi = m.hi === m.lo ? 4095 : m.hi;
+    c.range.min = lo; c.range.max = hi;
+    c.lo.textContent = `${lo} (${fmtDeg(lo, spd)})`; c.hi.textContent = `${hi} (${fmtDeg(hi, spd)})`;
+    const locked = calIds.includes(m.id);
+    c.range.disabled = !(m.online && m.torque) || locked;
+    c.jogs.forEach(b => b.disabled = !(m.online && m.torque) || locked);
+    c.swl.classList.toggle("disabled", !m.online || locked);
+    if (locked) c.tlabel.textContent = "calibrating";
+
+    if (m.online && m.pos !== null) {
+      c.deg.textContent = fmtDeg(m.pos, spd);
+      c.steps.textContent = `${m.pos} steps`;
+      const frac = Math.max(0, Math.min(1, (m.pos - lo) / (hi - lo)));
+      c.present.style.left = `calc(${(frac * 100).toFixed(2)}% )`;
+      c.present.style.display = "block";
+      if (!dragging[m.id]) c.range.value = m.torque && m.goal !== null ? m.goal : m.pos;
+      c.goal.textContent = m.torque && m.goal !== null ? `goal ${m.goal}` : "";
+      const loadPct = Math.abs(m.load) / 10;
+      c.load.querySelector("b").textContent = loadPct.toFixed(0) + "%";
+      c.load.className = "stat s-load" + (loadPct >= 60 ? " alarm" : loadPct >= 25 ? " hot" : "");
+      c.temp.querySelector("b").textContent = m.temp + "°C";
+      c.temp.className = "stat s-temp" + (m.temp >= 65 ? " alarm" : m.temp >= 50 ? " hot" : "");
+      c.volt.querySelector("b").textContent = m.volt.toFixed(1) + " V";
+      c.volt.className = "stat s-volt" + (m.volt > s.max_volts || m.volt < 4.5 ? " alarm" : "");
+      c.spd.querySelector("b").textContent = (Math.abs(m.speed) / spd).toFixed(0) + "°/s";
+      const past = m.lo === 0 && m.hi === 0 ? 0 : Math.max(m.lo - m.pos, m.pos - m.hi, 0);
+      c.meta.textContent = (past > 23 ? "⚠ Outside its limit window, so torque-on is blocked. Move it back inside by hand, or calibrate it. · "
+        : past > 0 ? "Resting just past its range (probably on its hard stop). Torque-on will ease it back to the edge. · " : "") +
+        `Design range ${m.design[0]}° to ${m.design[1]}°`;
+    } else {
+      c.deg.textContent = "—"; c.steps.textContent = "not answering"; c.goal.textContent = "";
+      c.present.style.display = "none"; c.meta.textContent = `Design range ${m.design[0]}° to ${m.design[1]}°`;
+      [c.load, c.temp, c.volt, c.spd].forEach(x => x.querySelector("b").textContent = "—");
+    }
+  }
+}
+
+// ---------------- calibration tab ----------------
+const PHASES = ["idle", "posing", "recording", "done"];
+let calRendered = null;
+const travelDeg = (lo, hi, spd) => ((hi - lo) / spd).toFixed(0) + "°";
+const designTravel = (m) => (m.design[1] - m.design[0]).toFixed(0) + "°";
+const meter = (lo, hi, now, full, mid = null, seen = false) => {
+  const p = v => Math.max(0, Math.min(100, v / 4095 * 100)).toFixed(2) + "%";
+  const bar = lo !== null && hi !== null && lo !== undefined
+    ? `<i class="${seen ? "seen" : full ? "full" : ""}" style="left:${p(lo)};width:calc(${p(hi)} - ${p(lo)})"></i>` : "";
+  const midMark = mid !== null ? `<b style="left:${p(mid)}"></b>` : "";
+  return `<div class="meter">${bar}${midMark}${now !== null ? `<u style="left:${p(now)}"></u>` : ""}</div>`;
+};
+const HINTS = {
+  gripper: "Half open.",
+  wrist_roll: "Halfway through its twist. It turns about 320°, so use the ◆ marker.",
+  wrist_flex: "Halfway between fully up and fully down.",
+  elbow_flex: "Halfway between its two stops.",
+  shoulder_lift: "Halfway between its two stops. Hold the arm up; it can't hold itself while limp.",
+  shoulder_pan: "Halfway between full left and full right (usually facing forward).",
+};
+let calMode = (() => { try { return localStorage.getItem("calMode") || "all"; } catch (e) { return "all"; } })();
+let calPick = null;
+const calIdsOf = (s) => (s.cal.ids && s.cal.ids.length ? s.cal.ids : s.motors.map(m => m.id));
+const isCalibrated = (m) => m.online && !(m.lo === 0 && m.hi === 4095) && !(m.lo === 0 && m.hi === 0);
+const subject = (s) => { const ids = calIdsOf(s); return ids.length >= 6 ? null : s.motors[ids[0] - 1].name; };
+
+const CAL_VIEWS = {
+  idle: (s) => `
+    <h2>Calibrate the arm</h2>
+    <div class="seg" id="calModeSeg">
+      <button data-mode="all">All joints together</button>
+      <button data-mode="one">One joint at a time</button>
+    </div>
+    <div class="row" style="margin-top:0">
+      <label class="muted" for="robotid">Robot id</label>
+      <input class="input" id="robotid" value="${s.cal.robot_id}" maxlength="40" spellcheck="false">
+      <span class="muted" style="font-size:12px">Becomes the file name. Keep it the same for every joint.</span>
+    </div>
+    <div id="modeAll">
+      <p style="margin-top:12px">This runs the same steps as <code>lerobot-calibrate</code>. You'll need both hands on the arm: torque goes off on all six joints, so it will go limp.</p>
+      <ol>
+        <li>Start: each motor's offset resets to 0 and its limits to 0–4095.</li>
+        <li>Pose every joint in the middle of its range (gripper half open), then press <b>Set middle</b>.</li>
+        <li>Move each joint slowly to both of its ends.</li>
+        <li>Save: the ranges become the motors' limits, and the file is saved for LeRobot.</li>
+      </ol>
+      <div class="row"><span class="spacer"></span><button class="primary" id="calStartAsk">Start calibration…</button></div>
+      <div class="confirm" id="calConfirm">
+        <b>Support the arm before you continue.</b> Torque turns off on every joint, so the arm will drop. The motors' current offsets and limits will be reset. Cancel puts them back.
+        <div class="row"><button class="danger" id="calStartGo">Yes, turn torque off and start</button><button id="calStartNo">Not yet</button></div>
+      </div>
+    </div>
+    <div id="modeOne">
+      <p style="margin-top:12px">Pick a joint and calibrate just that one. Only its motor goes limp and gets reset. The other joints keep their torque and settings, so you can turn them on (Control tab) to hold the arm up while you work. Each save is added to the same calibration file.</p>
+      <div class="tablewrap"><table class="cal" id="pickTable">
+        <thead><tr><th>ID</th><th>Joint</th><th>Status</th><th class="num">Travel</th><th class="num">Design</th><th></th></tr></thead>
+        <tbody>${s.motors.map(m => `<tr><td>${m.id}</td><td>${m.name}</td><td id="pickStatus${m.id}"></td>
+          <td class="num" id="pickTravel${m.id}"></td><td class="num muted">${designTravel(m)}</td>
+          <td><button data-pick="${m.id}" id="pickBtn${m.id}">Calibrate</button></td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="notice bad" id="oldServer">Your <code>arm_ui.py</code> server is an older version that would calibrate <b>all</b> joints even if you pick one. Stop it (Ctrl+C) and run <code>python .\arm_ui.py</code> again to use this mode.</div>
+      <div class="confirm" id="oneConfirm">
+        <b id="oneConfirmText"></b>
+        <div class="row"><button class="danger" id="oneStartGo">Yes, start</button><button id="oneStartNo">Not yet</button></div>
+      </div>
+    </div>`,
+  posing: (s) => {
+    const one = subject(s);
+    return `
+    <h2>Step 2 · Put ${one ? `<b>${one}</b>` : "every joint"} in the middle of its range</h2>
+    <p>${one ? "Move it" : "Move each joint"} by hand to about halfway between ${one ? "its" : "their"} two ends. Hold that pose, then press <b>Set middle</b>. That pose becomes position 2047 (0°).</p>
+    <p><b>Not sure where the middle is?</b> First move ${one ? "the joint" : "each joint"} to both ends. The shaded bar shows how far you've gone, and the <span class="warn-txt">◆</span> marks the halfway point. Then bring ${one ? "it" : "each one"} back to the ◆ until "To middle" turns green.</p>
+    <div class="tablewrap"><table class="cal" id="poseTable">
+      <thead><tr><th>ID</th><th>Joint</th><th class="num">Raw</th><th class="num">To middle</th><th style="width:30%">0 ··· 4095</th><th>Middle is…</th></tr></thead><tbody></tbody>
+    </table></div>
+    <div class="row"><button id="calCancel">Cancel and restore</button><span class="spacer"></span><button class="primary" id="calMiddle">Set middle</button></div>`;
+  },
+  recording: (s) => {
+    const one = subject(s);
+    return `
+    <h2>Step 3 · Move ${one ? `<b>${one}</b>` : "each joint"} to both ends</h2>
+    <p>Slowly move ${one ? "it" : "each joint"} all the way one way, then all the way the other. The table fills in as you go. ${one ? "It needs" : "Every joint needs"} at least ${s.min_span} steps (about ${(s.min_span / s.steps_per_deg).toFixed(0)}°) of travel, but aim for the full range.</p>
+    <div class="tablewrap"><table class="cal" id="recTable">
+      <thead><tr><th>ID</th><th>Joint</th><th class="num">Min</th><th class="num">Now</th><th class="num">Max</th><th class="num">Travel</th><th class="num">Design</th><th style="width:28%">Recorded range</th><th></th></tr></thead><tbody></tbody>
+    </table></div>
+    <div class="row">
+      <button id="calCancel">Cancel and restore</button>
+      <button id="calReset">Restart range</button>
+      ${s.sim ? '<button id="simSweep">Simulate moving the joints</button>' : ""}
+      <span class="spacer"></span>
+      <button class="primary" id="calSave">Save calibration</button>
+    </div>`;
+  },
+  done: (s) => {
+    const ids = s.cal.saved.ids || [];
+    const data = s.cal.saved.data;
+    const inFile = Object.keys(data);
+    const missing = s.motors.map(m => m.name).filter(n => !inFile.includes(n));
+    const partial = ids.length < 6;
+    return `
+    <h2><span class="ok-txt">✓</span> ${partial ? ids.map(i => s.motors[i - 1].name).join(", ") + " calibrated" : "Calibration saved"}</h2>
+    <p>The recorded range is now the motor's limit window, and the joint reads about 2047 in its middle pose. Its degree reading on the Control tab is now a real joint angle.</p>
+    <div class="tablewrap"><table class="cal">
+      <thead><tr><th>ID</th><th>Joint</th><th class="num">Homing offset</th><th class="num">Min</th><th class="num">Max</th><th class="num">Travel</th></tr></thead>
+      <tbody>${Object.entries(data).filter(([, c]) => ids.includes(c.id)).map(([name, c]) => `<tr><td>${c.id}</td><td>${name}</td><td class="num">${c.homing_offset}</td><td class="num">${c.range_min}</td><td class="num">${c.range_max}</td><td class="num">${travelDeg(c.range_min, c.range_max, s.steps_per_deg)}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <p style="margin-top:12px">The calibration file now has <b>${inFile.length} of 6</b> joints${missing.length ? `. Still to do: <b>${missing.join(", ")}</b>` : " — complete"}.</p>
+    <div class="muted" style="font-size:12px">Saved to:</div>
+    <ul class="paths">${s.cal.saved.paths.map(p => `<li>${p}</li>`).join("")}</ul>
+    <div class="row"><span class="spacer"></span>
+      ${missing.length ? '<button class="primary" id="calNext">Calibrate another joint</button><button id="calClose">Back to Control</button>'
+                       : '<button class="primary" id="calClose">Back to Control</button>'}
+    </div>`;
+  },
+};
+
+function applyCalMode() {
+  document.querySelectorAll("#calModeSeg button").forEach(b => b.classList.toggle("active", b.dataset.mode === calMode));
+  if ($("modeAll")) $("modeAll").hidden = calMode !== "all";
+  if ($("modeOne")) $("modeOne").hidden = calMode !== "one";
+}
+
+function bindCal() {
+  const on = (id, fn) => { const b = $(id); if (b) b.addEventListener("click", fn); };
+  document.querySelectorAll("#calModeSeg button").forEach(b => b.addEventListener("click", () => {
+    calMode = b.dataset.mode; try { localStorage.setItem("calMode", calMode); } catch (e) {}
+    calPick = null; if ($("oneConfirm")) $("oneConfirm").classList.remove("show");
+    applyCalMode();
+  }));
+  applyCalMode();
+  on("calStartAsk", () => $("calConfirm").classList.add("show"));
+  on("calStartNo", () => $("calConfirm").classList.remove("show"));
+  on("calStartGo", async () => { const r = await api("cal_start", { robot_id: $("robotid").value }); if (!r.ok) $("calConfirm").classList.remove("show"); });
+  document.querySelectorAll("[data-pick]").forEach(b => b.addEventListener("click", () => {
+    calPick = Number(b.dataset.pick);
+    const m = state.motors[calPick - 1];
+    $("oneConfirmText").textContent = `Calibrate ${m.name} (ID ${m.id})? Torque turns off on ${m.name} only, so support whatever it holds up. Its offset and limits are reset; Cancel puts them back. The other joints aren't touched.`;
+    $("oneConfirm").classList.add("show");
+  }));
+  on("oneStartNo", () => { calPick = null; $("oneConfirm").classList.remove("show"); });
+  on("oneStartGo", async () => {
+    const r = await api("cal_start", { robot_id: $("robotid").value, ids: [calPick] });
+    if (!r.ok) $("oneConfirm").classList.remove("show");
+  });
+  on("calMiddle", () => api("cal_middle"));
+  on("calReset", () => api("cal_reset"));
+  on("calCancel", async () => { const r = await api("cal_cancel"); if (r.ok) toast("Calibration cancelled. The previous offsets and limits are restored.", true); });
+  on("calSave", async () => { const r = await api("cal_save"); if (r.ok) toast("Calibration saved.", true); });
+  on("calClose", async () => { await api("cal_close"); setTab("control"); });
+  on("calNext", async () => { calMode = "one"; try { localStorage.setItem("calMode", "one"); } catch (e) {} await api("cal_close"); });
+  on("simSweep", () => api("sim_sweep"));
+}
+
+function renderCal(s) {
+  const cal = s.cal, spd = s.steps_per_deg;
+  const idx = PHASES.indexOf(cal.phase);
+  document.querySelectorAll("#stepper div").forEach((d, i) => {
+    d.classList.toggle("now", i === idx);
+    d.classList.toggle("done", i < idx || cal.phase === "done");
+  });
+  if (calRendered !== cal.phase) {
+    $("calbody").innerHTML = CAL_VIEWS[cal.phase](s);
+    bindCal();
+    calRendered = cal.phase;
+  }
+  const ids = calIdsOf(s);
+  const rows = s.motors.filter(m => ids.includes(m.id));
+  if (cal.phase === "idle" && $("calStartAsk")) {
+    const allOnline = s.motors.every(m => m.online);
+    $("calStartAsk").disabled = !allOnline;
+    $("calStartAsk").title = allOnline ? "" : "All 6 motors must be answering";
+    const fileData = (cal.file && cal.file.data) || {};
+    const nextId = (s.motors.find(m => !isCalibrated(m)) || {}).id;
+    const oldServer = !("ids" in cal);  // pre-per-joint server ignores ids and would reset ALL joints
+    $("oldServer").classList.toggle("show", oldServer);
+    for (const m of s.motors) {
+      const done = isCalibrated(m);
+      $("pickStatus" + m.id).innerHTML = !m.online ? '<span class="muted">not answering</span>'
+        : done ? `<span class="ok-txt">✓ calibrated</span>${fileData[m.name] ? "" : ' <span class="muted">(not in file)</span>'}`
+        : '<span class="warn-txt">not calibrated</span>';
+      $("pickTravel" + m.id).textContent = done ? travelDeg(m.lo, m.hi, spd) : "—";
+      const b = $("pickBtn" + m.id);
+      b.disabled = !m.online || oldServer;
+      b.textContent = done ? "Redo" : "Calibrate";
+      b.className = m.id === nextId ? "primary" : "";
+    }
+  }
+  if (cal.phase === "posing") {
+    $("poseTable").tBodies[0].innerHTML = rows.map(m => {
+      const j = cal.joints[String(m.id)] || {};
+      const seenSpan = j.seen_max - j.seen_min;
+      const mid = seenSpan >= s.min_span ? Math.round((j.seen_min + j.seen_max) / 2) : null;
+      const diff = mid !== null && m.pos !== null ? (m.pos - mid) / spd : null;
+      const toMid = diff === null ? '<span class="muted">move to both ends</span>'
+        : Math.abs(diff) <= 5 ? `<span class="near">${diff >= 0 ? "+" : ""}${diff.toFixed(0)}° ✓</span>`
+        : `${diff >= 0 ? "+" : ""}${diff.toFixed(0)}°`;
+      const crossed = (j.seen_min !== null && j.seen_min < 0) || (j.seen_max !== null && j.seen_max > 4095);
+      const hint = crossed
+        ? `<span class="warn-txt"><b>Passed the sensor's zero point</b>, so the reading is beyond one turn and Set middle will refuse. Cancel, unplug servo power for 5 s, start again and move this joint straight to its middle without sweeping it.</span>`
+        : (HINTS[m.name] || "");
+      return `<tr><td>${m.id}</td><td>${m.name}</td><td class="num">${m.pos ?? "—"}</td><td class="num">${toMid}</td>
+        <td>${meter(j.seen_min, j.seen_max, m.pos, false, mid, true)}</td><td class="hint">${hint}</td></tr>`;
+    }).join("");
+  }
+  if (cal.phase === "recording") {
+    let allOk = true;
+    $("recTable").tBodies[0].innerHTML = rows.map(m => {
+      const j = cal.joints[String(m.id)] || {};
+      const span = j.max - j.min, ok = span >= s.min_span;
+      allOk = allOk && ok;
+      return `<tr><td>${m.id}</td><td>${m.name}</td><td class="num">${j.min}</td><td class="num">${m.pos ?? "—"}</td><td class="num">${j.max}</td>
+        <td class="num">${travelDeg(j.min, j.max, spd)}</td><td class="num muted">${designTravel(m)}</td>
+        <td>${meter(j.min, j.max, m.pos, ok)}</td><td>${ok ? '<span class="ok-txt">✓</span>' : '<span class="muted">move</span>'}</td></tr>`;
+    }).join("");
+    $("calSave").disabled = !allOk;
+  }
+  // current calibration on the motors
+  $("curtable").tBodies[0].innerHTML = s.motors.map(m => {
+    const fresh = m.lo === 0 && m.hi === 4095;
+    return `<tr><td>${m.id}</td><td>${m.name}</td><td class="num">${m.online ? m.offset : "—"}</td>
+      <td class="num">${m.online ? (fresh ? '<span class="warn-txt">0–4095 (none)</span>' : `${m.lo}–${m.hi}`) : "—"}</td>
+      <td class="num">${m.online && !fresh ? travelDeg(m.lo, m.hi, spd) : "—"}</td><td class="num muted">${designTravel(m)}</td></tr>`;
+  }).join("");
+  const f = cal.file;
+  $("fileinfo").textContent = f.exists
+    ? `Saved file for “${cal.robot_id}”: ${f.path} (updated ${new Date(f.modified * 1000).toLocaleString()})`
+    : `No saved calibration file for “${cal.robot_id}” yet. It will be written to ${f.path}`;
+}
+
+// ---------------- motor settings check (read-only) ----------------
+const SETTINGS_ORDER = ["Operating_Mode", "Angular_Resolution", "Phase", "Min_Position_Limit", "Max_Position_Limit",
+  "Homing_Offset", "Present_Position", "Max_Torque", "Torque_Limit", "P", "D", "I", "CW_Deadzone", "CCW_Deadzone",
+  "Baud_Rate", "Lock", "Torque_Enable"];
+const EXPECTED_DIFFERENT = new Set(["Homing_Offset", "Present_Position", "Min_Position_Limit", "Max_Position_Limit", "Torque_Enable", "Lock"]);
+
+async function readSettings() {
+  $("settingsFlags").innerHTML = '<p class="muted">Reading…</p>';
+  let data;
+  try {
+    const r = await fetch("/api/settings", { cache: "no-store" });
+    if (r.status === 404) { $("settingsFlags").innerHTML = '<p class="notice bad show">Your <code>arm_ui.py</code> server is too old for this check. Stop it (Ctrl+C) and run <code>python .\\arm_ui.py</code> again.</p>'; return; }
+    data = await r.json();
+  } catch (e) { $("settingsFlags").innerHTML = `<p class="notice bad show">Couldn't read settings: ${e.message}</p>`; return; }
+  const ids = Object.keys(data).map(Number).sort((a, b) => a - b).filter(i => data[i].regs);
+  const mode = (vals) => { const c = {}; vals.forEach(v => c[v] = (c[v] || 0) + 1); return Number(Object.entries(c).sort((a, b) => b[1] - a[1])[0][0]); };
+  const flags = [];
+  let html = `<thead><tr><th>Setting</th>${ids.map(i => `<th class="num">${i} ${data[i].name}</th>`).join("")}</tr></thead><tbody>`;
+  for (const key of SETTINGS_ORDER) {
+    const vals = ids.map(i => data[i].regs[key]);
+    const common = mode(vals);
+    html += `<tr><td>${key}</td>` + ids.map((i, k) => {
+      const v = vals[k];
+      const odd = !EXPECTED_DIFFERENT.has(key) && v !== common;
+      return `<td class="num${odd ? " warn-txt" : ""}">${odd ? "<b>" + v + "</b>" : v}</td>`;
+    }).join("") + "</tr>";
+  }
+  html += "</tbody>";
+  for (const i of ids) {
+    const r = data[i].regs, n = data[i].name;
+    if (r.Operating_Mode !== 0) flags.push(`${n}: Operating_Mode is ${r.Operating_Mode}, not 0 (position mode).`);
+    if (r.Angular_Resolution !== 1) flags.push(`${n}: Angular_Resolution is ${r.Angular_Resolution}, not 1, so it counts multiple turns.`);
+    if (r.Min_Position_Limit === 0 && r.Max_Position_Limit === 0) flags.push(`${n}: both limits are 0, which switches on multi-turn mode.`);
+    const raw = r.Present_Position + r.Homing_Offset;
+    if (raw < 0 || raw > 4095) flags.push(`${n}: reads ${r.Present_Position} with offset ${r.Homing_Offset}, which is outside one turn (0–4095).`);
+  }
+  $("settingsFlags").innerHTML = flags.length
+    ? `<div class="notice warn show" style="margin-top:12px"><b>Found:</b><ul style="margin:6px 0 0;padding-left:18px">${flags.map(f => `<li>${f}</li>`).join("")}</ul></div>`
+    : '<p class="ok-txt" style="margin-top:12px">No odd settings found.</p>';
+  $("settingsTable").innerHTML = html;
+  window.lastSettings = data;  // for debugging from the console
+}
+$("readSettings").addEventListener("click", readSettings);
+
+// ---------------- remote tab ----------------
+let rmBuilt = false;
+function renderRemote(s) {
+  const r = s.remote;
+  $("rmStatus").innerHTML = !r.available ? `<span class="bad-txt">${r.error}</span>`
+    : (r.connected ? `Connected: <b>${r.pad}</b>` : "No controller found. Plug in the DualShock 4 (USB) or pair it over Bluetooth.")
+      + ` · remote mode <b>${r.enabled ? "ON" : "off"}</b>` + (r.enabled ? (r.armed ? " · <b>live</b>" : " · release all sticks to start") : "");
+  $("rmMsg").textContent = r.message; $("rmMsg").classList.toggle("show", !!r.message);
+  $("rmScale").textContent = r.scale;
+  document.querySelectorAll("#rmStyle button").forEach(b => b.classList.toggle("active", b.dataset.style === r.style));
+  $("rmCartNote").textContent = r.style === "cartesian"
+    ? "Cartesian: left stick = tool forward/back and left/right, right stick Y = up/down, right stick X = tool pitch. Joints set to Hold stay fixed; the IK moves only the Active ones among IDs 3–6."
+    : (r.cart_ok ? "" : "Cartesian isn't available yet: " + r.cart_why + ".");
+  $("rmEnable").disabled = r.enabled; $("rmDisable").disabled = !r.enabled;
+  if (!rmBuilt) {
+    $("rmTable").innerHTML = `<thead><tr><th>ID</th><th>Joint</th><th>Mode</th><th class="num">Load</th><th class="num">Temp</th></tr></thead><tbody>` +
+      s.motors.map(m => `<tr><td>${m.id}</td><td>${m.name}</td><td><div class="seg" style="margin:0">` +
+        ["active", "hold", "limp"].map(k => `<button data-rm="${m.id}:${k}">${k}</button>`).join("") +
+        `</div></td><td class="num" id="rmLoad${m.id}"></td><td class="num" id="rmTemp${m.id}"></td></tr>`).join("") + `</tbody>`;
+    document.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => {
+      const [id, mode] = b.dataset.rm.split(":");
+      if (mode === "limp" && (id === "4" || id === "5") && !confirm("Limp on this joint lets the arm sag under gravity. Support it first. Continue?")) return;
+      api("remote_mode", { id: Number(id), mode });
+    }));
+    rmBuilt = true;
+  }
+  document.querySelectorAll("[data-rm]").forEach(b => {
+    const [id, mode] = b.dataset.rm.split(":");
+    b.classList.toggle("active", r.modes[id] === mode);
+  });
+  s.motors.forEach(m => {
+    const ld = $("rmLoad" + m.id), pct = m.load == null ? null : Math.abs(m.load) / 10;
+    ld.textContent = pct == null ? "–" : pct.toFixed(0) + " %";
+    ld.style.color = pct >= 60 ? "var(--bad)" : pct >= 25 ? "var(--warn)" : "";
+    const el = $("rmTemp" + m.id);
+    el.textContent = m.temp == null ? "–" : m.temp + " °C";
+    el.style.color = m.temp >= r.temp_cut ? "var(--bad)" : m.temp >= r.temp_warn ? "var(--warn)" : "";
+  });
+  $("rmRaw").textContent = `axes:    ${r.axes.map((a, i) => i + "=" + a.toFixed(2)).join("  ")}\nbuttons: ${r.buttons.map((b, i) => b ? i : null).filter(x => x != null).join(", ") || "(none pressed)"}`;
+}
+document.querySelectorAll("#rmStyle button").forEach(b => b.addEventListener("click", () => api("remote_style", { style: b.dataset.style })));
+$("rmEnable").addEventListener("click", () => api("remote_enable"));
+$("rmDisable").addEventListener("click", () => api("remote_disable"));
+
+const TABS = { control: "", remote: "#remote", cal: "#calibration" };
+function setTab(t) {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === t));
+  $("panel-control").hidden = t !== "control";
+  $("panel-remote").hidden = t !== "remote";
+  $("panel-cal").hidden = t !== "cal";
+  document.body.classList.toggle("on-cal", t === "cal");
+  history.replaceState(null, "", TABS[t] || "#");
+}
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+setTab(location.hash === "#calibration" ? "cal" : location.hash === "#remote" ? "remote" : "control");
+
+async function poll() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    state = await r.json(); render(state);
+    if (state.remote) renderRemote(state);
+  } catch (e) {
+    $("conndot").className = "dot off"; $("conntext").textContent = "server not running";
+  }
+  setTimeout(poll, 100);
+}
+
+$("speed").addEventListener("input", e => $("speedval").textContent = e.target.value + " °/s");
+$("speed").addEventListener("change", e => api("speed", { dps: Number(e.target.value) }));
+$("enableAll").addEventListener("click", () => api("enable_all"));
+$("holdAll").addEventListener("click", () => api("hold"));
+$("limpAll").addEventListener("click", () => api("limp"));
+window.addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); api("limp"); }
+  else if (e.key === " " && !["BUTTON", "INPUT"].includes(e.target.tagName) && !document.body.classList.contains("on-cal")) { e.preventDefault(); api("hold"); }
+});
+poll();
+</script>
+</body>
+</html>

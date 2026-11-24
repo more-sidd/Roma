@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "arm-ui-SIMULATOR-not-real-arm",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["arm_ui.py", "--sim", "--http", "8102"],
+      "port": 8102
+    }
+  ]
+}
