@@ -1,6 +1,8 @@
-"""Read-only scan of Feetech STS3215 servos on the Waveshare bus adapter.
+"""Read-only scan of the SO-101 arm's Feetech STS3215 servos on the Waveshare bus adapter.
 
-Pings IDs, then reads position, voltage, temperature and load. Never writes.
+The SO-101 has exactly 6 motors, IDs 1-6 (see JOINTS). The scan still pings
+IDs 0-253 so a misnumbered motor shows up, and flags any ID outside 1-6.
+Reads position, voltage, temperature and load. Never writes.
 Usage: python scan_servos.py [PORT|auto] [BAUD]   (port auto-detected by default)
 """
 import sys
@@ -9,6 +11,12 @@ from serial.tools import list_ports
 
 PING, READ = 0x01, 0x02
 ADDR_POSITION, ADDR_LOAD, ADDR_VOLTAGE, ADDR_TEMP = 56, 60, 62, 63
+
+# SO-101: 6 motors, one per joint, numbered from the gripper (1) to the base (6).
+# Joint names are LeRobot's, but the ID order is the REVERSE of LeRobot's
+# so101_follower default (shoulder_pan=1 ... gripper=6). Keep in sync with sts_bus.py.
+JOINTS = {1: "gripper", 2: "wrist_roll", 3: "wrist_flex",
+          4: "elbow_flex", 5: "shoulder_lift", 6: "shoulder_pan"}
 
 
 def find_port():
@@ -58,8 +66,19 @@ def main():
             p = signed(int.from_bytes(pos, "little"), 15) if pos else None
             l = signed(int.from_bytes(load, "little"), 10) if load else None
             deg = f"{p * 360 / 4096:6.1f} deg" if p is not None else "?"
-            print(f"  ID {sid:3}: pos={p} ({deg})  load={l}  "
+            name = JOINTS.get(sid, "NOT AN SO-101 ID (misnumbered motor)")
+            print(f"  ID {sid:3} {name:<14}: pos={p} ({deg})  load={l}  "
                   f"{volt[0] / 10 if volt else '?'} V  {temp[0] if temp else '?'} C")
+
+        missing = [f"{i} ({JOINTS[i]})" for i in JOINTS if i not in found]
+        extra = [sid for sid in found if sid not in JOINTS]
+        if missing:
+            print("Missing joints:", ", ".join(missing))
+        if extra:
+            print(f"IDs outside 1-6: {extra}. The arm has only 6 motors, so each of these is a "
+                  "joint with the wrong ID (renumber it), not an extra motor.")
+        if not missing and not extra:
+            print("All 6 joints present with correct IDs.")
 
 
 if __name__ == "__main__":
