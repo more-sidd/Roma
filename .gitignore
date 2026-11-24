@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+
+# simulator output
+calibration/sim/
+
+# arm-specific calibration; remove this line if you want your own committed
+calibration/*.json
+
+# diagnostic run output (regenerate with so101_diagnose.py)
+so101_diag.csv
+
+# vendor datasheets: keep locally, don't redistribute
+*.pdf
