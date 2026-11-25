@@ -33,8 +33,9 @@ from pathlib import Path
 
 from serial.tools import list_ports
 
+import kinematics as kin
 from so101_calibrate import HALF_TURN, lerobot_calib_dir
-from remote import Remote
+from remote import CART_PITCH_W, DIR, Remote
 from sts_bus import JOINTS, MAX_RES, Bus, BusError, decode, encode
 
 MAX_VOLTS = 8.4
@@ -55,6 +56,19 @@ URDF_DEG = {"gripper": (-10.0, 100.0), "wrist_roll": (-157.2, 162.8), "wrist_fle
 
 class CmdError(Exception):
     pass
+
+
+def ik_solve(b):
+    """IK for the Virtual arm's preview: no bus access, nothing moves. b = {"q": {joint: deg},
+    "target": [x, y, z, pitch_deg], "free": [joint names]}. Same solver and pitch weight as
+    Cartesian remote mode, but limited by the URDF ranges, not the motors' windows."""
+    q = [math.radians(float(b["q"].get(n, 0.0))) for n in kin.JOINT_ORDER]
+    x, y, z, pitch = (float(v) for v in b["target"])
+    free = [kin.JOINT_ORDER.index(n) for n in b.get("free", kin.JOINT_ORDER[:4])]
+    q, residual = kin.solve(q, (x, y, z, math.radians(pitch)), free, iters=150, pitch_weight=CART_PITCH_W)
+    f = kin.fk(q)
+    return {"q": {n: math.degrees(a) for n, a in zip(kin.JOINT_ORDER, q)}, "residual": residual,
+            "tool": [*f[:3], math.degrees(f[3])]}
 
 
 class Arm:
@@ -349,7 +363,7 @@ class Arm:
         from the existing file (or, if it has none, from its motor's registers when
         those hold a real calibration). Joints never calibrated are left out."""
         existing = {}
-        p = self._calib_dirs()[0] / f"{self.cal['robot_id']}.json"
+        p = self._existing_file()
         if p.exists():
             try:
                 existing = json.loads(p.read_text())
@@ -422,8 +436,17 @@ class Arm:
         """Where calibration JSON goes. The simulator never touches the real LeRobot file."""
         return [REPO_CALIB / "sim"] if self.sim else [lerobot_calib_dir(), REPO_CALIB]
 
+    def _existing_file(self):
+        """The saved file for this robot id: the first copy found in the calibration dirs,
+        so a file written to calibration/ is picked up when the LeRobot cache has none."""
+        name = f"{self.cal['robot_id']}.json"
+        for d in self._calib_dirs():
+            if (d / name).exists():
+                return d / name
+        return self._calib_dirs()[0] / name
+
     def _saved_file(self):
-        p = self._calib_dirs()[0] / f"{self.cal['robot_id']}.json"
+        p = self._existing_file()
         if not p.exists():
             return {"path": str(p), "exists": False}
         try:
@@ -541,6 +564,12 @@ def make_handler(arm):
         "remote_mode": lambda b: remote.set_mode(b["id"], b["mode"]),
         "remote_style": lambda b: remote.set_style(b["style"]),
         "remote_scale": lambda b: remote.set_scale(b["scale"]),
+        "remote_drive": lambda b: remote.set_drive(b["drive"]),
+        "pad_cal_start": lambda b: remote.pad_cal_start(),
+        "pad_cal_skip": lambda b: remote.pad_cal_skip(),
+        "pad_cal_cancel": lambda b: remote.pad_cal_cancel(),
+        "pad_cal_save": lambda b: remote.pad_cal_save(),
+        "pad_cal_reset": lambda b: remote.pad_cal_reset(),
         "torque": lambda b: arm.torque(b["id"], bool(b["on"])),
         "goal": lambda b: {"goal": arm.goal(b["id"], b["pos"])},
         "jog": lambda b: {"goal": arm.jog(b["id"], b["deg"])},
@@ -555,6 +584,7 @@ def make_handler(arm):
         "cal_cancel": lambda b: arm.cal_cancel(),
         "cal_close": lambda b: arm.cal_close(),
         "sim_sweep": lambda b: arm.sim_sweep(),
+        "ik_solve": ik_solve,
     }
 
     class Handler(BaseHTTPRequestHandler):
@@ -575,6 +605,8 @@ def make_handler(arm):
                 self._send(200, HTML.read_bytes(), "text/html; charset=utf-8")
             elif self.path == "/api/state":
                 self._send(200, arm.state())
+            elif self.path == "/api/kinematics":  # URDF chain + motor directions, for the virtual arm
+                self._send(200, {**kin.model(), "dir": {JOINTS[i]: d for i, d in DIR.items()}})
             elif self.path == "/api/settings":  # read-only register dump of every motor
                 self._send(200, arm.read_settings())
             else:

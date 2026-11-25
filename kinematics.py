@@ -22,6 +22,8 @@ _CHAIN = (
     ((5.55112e-17, -0.0611, 0.0181), (1.5708, 0.0486795, 3.14159)),
 )
 _TOOL = ((-0.0079, -0.000218121, -0.0981274), (0.0, 3.14159, 0.0))
+# Moving-jaw pivot (URDF joint "gripper", child of gripper_link, axis z). Only used for drawing.
+_GRIPPER = ((0.0202, 0.0188, -0.0234), (1.5708, -5.24284e-08, -1.41553e-15))
 # URDF joint limits (rad), same order
 LIMITS = ((-1.91986, 1.91986), (-1.74533, 1.74533), (-1.69, 1.69), (-1.65806, 1.65806), (-2.74385, 2.84121))
 
@@ -56,6 +58,11 @@ def fk(q):
     t = _mul(t, _TOOL_T)
     dx, dy, dz = t[0][2], t[1][2], t[2][2]  # tool z axis in the base frame
     return (t[0][3], t[1][3], t[2][3], math.atan2(dz, math.hypot(dx, dy)))
+
+
+def model():
+    """The chain as plain data, for the web UI's virtual arm (which does its own FK in JS)."""
+    return {"order": JOINT_ORDER, "chain": _CHAIN, "tool": _TOOL, "gripper": _GRIPPER, "limits": LIMITS}
 
 
 def _solve(a, b):

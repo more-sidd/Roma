@@ -129,6 +129,30 @@
   .near { color: var(--ok); font-weight: 600; }
   .paths { margin: 8px 0 0; padding-left: 18px; font: 12px ui-monospace, monospace; color: var(--muted); word-break: break-all; }
 
+  /* virtual arm */
+  .va { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+  .va-view { padding: 0; overflow: hidden; position: relative; }
+  .va-view canvas { display: block; width: 100%; height: 540px; touch-action: none; cursor: grab; }
+  .va-view canvas:active { cursor: grabbing; }
+  .va-views { position: absolute; top: 10px; left: 10px; display: flex; gap: 4px; }
+  .va-views button { padding: 4px 9px; font-size: 12px; }
+  .va-help { position: absolute; bottom: 8px; left: 12px; margin: 0; font-size: 12px; pointer-events: none; }
+  .va-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .va-legend i { display: inline-block; width: 16px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .va-sl { display: grid; grid-template-columns: 96px minmax(0, 1fr) 54px; gap: 8px; align-items: center; font-size: 13px; margin: 4px 0; }
+  .va-sl input { width: 100%; }
+  .va-sl b { font: 600 12px ui-monospace, monospace; text-align: right; font-variant-numeric: tabular-nums; }
+  .va-ik { margin: 10px 0 0; font-size: 13px; }
+  .va-ik .st { margin: 0 0 6px; }
+  .va-ik dl { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 3px 8px; margin: 0; }
+  .va-ik dt { color: var(--muted); }
+  .va-ik dd { margin: 0; font: 12px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .va-show { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .va-show label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+  .va-show button { padding: 3px 8px; font-size: 12px; }
+  .va-tool { font: 12px ui-monospace, monospace; color: var(--muted); margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+  @media (max-width: 900px) { .va { grid-template-columns: minmax(0, 1fr); } .va-view canvas { height: 380px; } }
+
   @media (max-width: 560px) {
     .stepper { grid-template-columns: repeat(2, 1fr); }
     .actions { margin-left: 0; width: 100%; }
@@ -145,6 +169,7 @@
     <nav class="tabs">
       <button data-tab="control" class="active">Control</button>
       <button data-tab="remote">Remote</button>
+      <button data-tab="virtual">Virtual arm</button>
       <button data-tab="cal">Calibration<span class="pip" id="calpip"></span></button>
     </nav>
     <span class="conn"><span class="dot" id="conndot"></span><span id="conntext">connecting…</span></span>
@@ -176,6 +201,8 @@
         <h2>PlayStation controller</h2>
         <p id="rmStatus" class="muted" style="margin:0 0 6px"></p>
         <div class="notice warn show" style="margin:8px 0">No deadman: joints move only while you push a stick or button, and stop when you let go. After starting, release everything once before it responds. <b>X</b> = close gripper, <b>O</b> = open, <b>L1</b> / <b>L2</b> = rotate the wrist, D-pad ↑/↓ = speed scale. <b>PS</b> = hold all, <b>Options</b> = all limp and remote off. Joint style sticks: left X/Y = base/shoulder, right Y/X = elbow/wrist pitch.</div>
+        <div class="seg rm-drive" style="margin-bottom:4px"><button data-drive="real">Real arm</button><button data-drive="virtual">Virtual arm only</button></div>
+        <p class="muted" id="rmDriveNote" style="margin:0 0 6px;font-size:12px"></p>
         <div class="seg" id="rmStyle"><button data-style="joint">Joint by joint</button><button data-style="cartesian">Cartesian (IK)</button></div>
         <p class="muted" id="rmCartNote" style="margin:0 0 6px;font-size:12px"></p>
         <div class="notice bad" id="rmMsg"></div>
@@ -184,6 +211,28 @@
           <button id="rmDisable">Stop remote mode</button>
           <span class="spacer"></span>
           <span class="muted">Speed scale <b id="rmScale"></b>×</span>
+        </div>
+      </div>
+      <div class="card" id="padCalCard">
+        <h2>Controller calibration</h2>
+        <p class="muted" id="pcStatus" style="margin:0 0 8px"></p>
+        <div id="pcIdle">
+          <p class="muted" style="margin:0 0 6px">Maps this controller's sticks, triggers, buttons and D-pad, so the Remote tab works on any pad or OS. Takes about a minute. Remote mode must be off. Nothing moves the arm during this.</p>
+          <div class="row" style="margin-top:6px">
+            <button class="primary" id="pcStart">Calibrate controller</button>
+            <button id="pcReset">Reset to defaults</button>
+          </div>
+        </div>
+        <div id="pcRun" hidden>
+          <div class="muted" id="pcProgress" style="margin-bottom:4px"></div>
+          <div id="pcPrompt" style="font-size:20px;font-weight:600;margin:4px 0 8px"></div>
+          <div class="notice warn" id="pcMsg"></div>
+          <div class="tablewrap"><table class="cal" id="pcTable"></table></div>
+          <div class="row">
+            <button class="primary" id="pcSave" hidden>Save mapping</button>
+            <button id="pcSkip">Skip this control</button>
+            <button id="pcCancel">Cancel</button>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -195,6 +244,46 @@
         <h2>Raw controller input</h2>
         <p class="muted" style="margin:0 0 6px">To check the button mapping: move a stick or press a button and see which number changes.</p>
         <pre id="rmRaw" style="margin:0;font:12px ui-monospace,monospace;white-space:pre-wrap"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-virtual" hidden>
+    <div class="notice warn" id="vaCalNote"></div>
+    <div class="va">
+      <div class="card va-view">
+        <canvas id="vaCanvas"></canvas>
+        <div class="va-views"><button data-view="iso">3D</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="top">Top</button></div>
+        <p class="muted va-help">Drag to orbit · scroll to zoom · grid squares are 5 cm · red = forward (+x)</p>
+      </div>
+      <div class="card">
+        <h2>Virtual arm</h2>
+        <div class="seg" id="vaMode"><button data-mode="live">Live from arm</button><button data-mode="preview">Preview only</button></div>
+        <p class="muted" id="vaModeNote" style="margin:0 0 8px;font-size:13px"></p>
+        <div id="vaPrevOnly">
+          <div class="seg" id="vaPrevKind"><button data-kind="joints">Joint sliders</button><button data-kind="ik">IK target</button></div>
+          <div id="vaSliders"></div>
+          <div id="vaIkSliders"></div>
+          <p class="muted" id="vaIkResult" style="margin:6px 0 0;font-size:13px"></p>
+          <div class="row" style="margin-top:8px"><button id="vaCopy">Copy pose from arm</button><button id="vaZero">Zero pose</button></div>
+        </div>
+        <div id="vaCtl" style="margin-top:4px">
+          <div class="seg rm-drive" style="margin:0 0 6px"><button data-drive="real">Real arm</button><button data-drive="virtual">Virtual arm only</button></div>
+          <div class="row" style="margin-top:0"><div class="seg" id="vaStyle" style="margin:0"><button data-style="joint">Joint</button><button data-style="cartesian">Cartesian (IK)</button></div>
+            <button id="vaRemote"></button></div>
+        </div>
+        <div class="va-ik" id="vaIk"></div>
+        <div class="va-show" id="vaShow">
+          <label><input type="checkbox" data-show="target" checked>IK target</label>
+          <label><input type="checkbox" data-show="solution" checked>IK solution</label>
+          <label><input type="checkbox" data-show="goal" checked>Goal</label>
+          <label><input type="checkbox" data-show="trail" checked>Trail</label>
+          <button id="vaClearTrail">Clear trail</button>
+        </div>
+        <div class="tablewrap"><table class="cal" id="vaTable"></table></div>
+        <p class="va-tool" id="vaTool"></p>
+        <div class="va-legend" id="vaLegend"></div>
+        <p class="muted" style="margin:10px 0 0;font-size:12px">Drawn from the SO-101 URDF with the same kinematics as Cartesian remote mode. Angles are (position − 2047) / 11.38, so the drawing only matches the real arm for calibrated joints. Wrist roll and gripper directions aren't verified yet.</p>
       </div>
     </div>
   </section>
@@ -651,12 +740,16 @@ function renderRemote(s) {
   const r = s.remote;
   $("rmStatus").innerHTML = !r.available ? `<span class="bad-txt">${r.error}</span>`
     : (r.connected ? `Connected: <b>${r.pad}</b>` : "No controller found. Plug in the DualShock 4 (USB) or pair it over Bluetooth.")
-      + ` · remote mode <b>${r.enabled ? "ON" : "off"}</b>` + (r.enabled ? (r.armed ? " · <b>live</b>" : " · release all sticks to start") : "");
+      + ` · remote mode <b>${r.enabled ? "ON" : "off"}</b>` + (r.drive === "virtual" ? " · <b>virtual arm only</b>" : "") + (r.enabled ? (r.armed ? " · <b>live</b>" : " · release all sticks to start") : "");
+  document.querySelectorAll(".rm-drive button").forEach(b => { b.classList.toggle("active", b.dataset.drive === r.drive); b.disabled = r.enabled && b.dataset.drive !== r.drive; });
+  $("rmDriveNote").innerHTML = r.drive === "virtual"
+    ? "The controller moves a <b>virtual arm</b> on the Virtual arm tab. Nothing is sent to the motors, so the real arm stays as it is. It starts from the real arm's pose each time you start remote mode."
+    : "The controller moves the <b>real arm</b>. Stop remote mode to switch to the virtual arm.";
   $("rmMsg").textContent = r.message; $("rmMsg").classList.toggle("show", !!r.message);
   $("rmScale").textContent = r.scale;
   document.querySelectorAll("#rmStyle button").forEach(b => b.classList.toggle("active", b.dataset.style === r.style));
   $("rmCartNote").textContent = r.style === "cartesian"
-    ? "Cartesian: left stick = tool forward/back and left/right, right stick Y = up/down, right stick X = tool pitch. Joints set to Hold stay fixed; the IK moves only the Active ones among IDs 3–6."
+    ? "Cartesian: left stick = gripper left/right and up/down, right stick Y = forward/back, right stick X = tilt the gripper left/right (wrist roll). The tool angle is held automatically. Joints set to Hold stay fixed; the IK moves only the Active ones among IDs 3–6."
     : (r.cart_ok ? "" : "Cartesian isn't available yet: " + r.cart_why + ".");
   $("rmEnable").disabled = r.enabled; $("rmDisable").disabled = !r.enabled;
   if (!rmBuilt) {
@@ -683,29 +776,399 @@ function renderRemote(s) {
     el.textContent = m.temp == null ? "–" : m.temp + " °C";
     el.style.color = m.temp >= r.temp_cut ? "var(--bad)" : m.temp >= r.temp_warn ? "var(--warn)" : "";
   });
-  $("rmRaw").textContent = `axes:    ${r.axes.map((a, i) => i + "=" + a.toFixed(2)).join("  ")}\nbuttons: ${r.buttons.map((b, i) => b ? i : null).filter(x => x != null).join(", ") || "(none pressed)"}`;
+  $("rmRaw").textContent = `axes:    ${r.axes.map((a, i) => i + "=" + a.toFixed(2)).join("  ")}\nbuttons: ${r.buttons.map((b, i) => b ? i : null).filter(x => x != null).join(", ") || "(none pressed)"}\nD-pad hat: ${r.hat.join(", ")}`;
+  renderPadCal(r);
 }
+
+const PAD_LABELS = { lx: "Left stick X", ly: "Left stick Y", rx: "Right stick X", ry: "Right stick Y", l2: "L2", r2: "R2",
+  x: "X", o: "O", l1: "L1", r1: "R1", ps: "PS", options: "Options", up: "D-pad up", down: "D-pad down", left: "D-pad left", right: "D-pad right" };
+function padSrc(key, map) {  // where a control currently comes from, as text
+  if (key in map.axes) return "axis " + map.axes[key] + (map.inverted.includes(key) ? " (inverted)" : "");
+  const b = map.buttons[key];
+  return b === "hat" ? "D-pad hat" : "button " + b;
+}
+function renderPadCal(r) {
+  const c = r.pad_cal, running = ["rest", "press", "release", "done"].includes(c.phase);
+  $("pcIdle").hidden = running; $("pcRun").hidden = !running;
+  $("pcStart").disabled = r.enabled || !r.connected;
+  $("pcStart").title = r.enabled ? "Stop remote mode first" : !r.connected ? "No controller connected" : "";
+  $("pcReset").disabled = !r.pad_map.saved;
+  const m = r.pad_map, mismatch = m.saved && m.saved_for && r.pad && m.saved_for !== r.pad;
+  $("pcStatus").innerHTML = (m.saved ? `Using your saved mapping (<code>${m.file}</code>).` : "Using the built-in default mapping (not calibrated).")
+    + (mismatch ? ` <span class="warn-txt">It was made with “${m.saved_for}”, but “${r.pad}” is connected. Calibrate again.</span>` : "")
+    + (!running && c.message ? ` <span class="ok-txt">${c.message}</span>` : "");
+  if (!running) return;
+  const done = c.phase === "done";
+  $("pcProgress").textContent = done ? "All controls done" : `Step ${c.step + 1} of ${c.total}`;
+  $("pcPrompt").textContent = done ? "Check the list, then save." : c.phase === "rest" ? "Let go of the sticks and every button…"
+    : c.phase === "release" ? "Got it. Let go…" : c.prompt;
+  $("pcMsg").textContent = c.message; $("pcMsg").classList.toggle("show", !!c.message);
+  $("pcSave").hidden = !done; $("pcSkip").hidden = done;
+  $("pcTable").innerHTML = `<thead><tr><th>Control</th><th>Mapped to</th></tr></thead><tbody>` + c.steps.map((s, i) => {
+    const f = c.found[s.key], cur = i === c.step && !done;
+    const txt = f === undefined ? (i < c.step || done ? "skipped (keeps " + padSrc(s.key, m) + ")" : cur ? "…" : "")
+      : (typeof f === "number" ? (s.key in m.axes ? "axis " : "button ") + f + (c.inverted.includes(s.key) ? " (inverted)" : "") : "D-pad hat");
+    return `<tr style="${cur ? "font-weight:600" : ""}"><td>${PAD_LABELS[s.key]}</td><td>${txt}</td></tr>`;
+  }).join("") + `</tbody>`;
+}
+$("pcStart").addEventListener("click", () => api("pad_cal_start"));
+$("pcSkip").addEventListener("click", () => api("pad_cal_skip"));
+$("pcCancel").addEventListener("click", () => api("pad_cal_cancel"));
+$("pcSave").addEventListener("click", async () => { const r = await api("pad_cal_save"); if (r.ok) toast("Controller mapping saved", true); });
+$("pcReset").addEventListener("click", () => { if (confirm("Forget the saved controller mapping and use the defaults?")) api("pad_cal_reset"); });
 document.querySelectorAll("#rmStyle button").forEach(b => b.addEventListener("click", () => api("remote_style", { style: b.dataset.style })));
 $("rmEnable").addEventListener("click", () => api("remote_enable"));
+document.querySelectorAll(".rm-drive button").forEach(b => b.addEventListener("click", () => api("remote_drive", { drive: b.dataset.drive })));
 $("rmDisable").addEventListener("click", () => api("remote_disable"));
 
-const TABS = { control: "", remote: "#remote", cal: "#calibration" };
+// ---------------- virtual arm tab ----------------
+// Live 3D drawing of the arm from the motor readings, with what Cartesian remote mode's IK
+// is asking for (target point, solved pose) and what the motors were told (goal), or a
+// preview pose set with joint sliders or an IK target. Nothing on this tab moves the arm:
+// the preview IK runs on the server (/api/ik_solve) without touching the bus.
+let KIN = null, vaMode = "live", vaKind = "joints", vaPreview = null, vaIkTarget = null, vaIkRes = null, vaIkBusy = false, vaIkAgain = false;
+const VA_VIEWS = { iso: { az: -1.0, el: 0.45 }, front: { az: 0, el: 0.08 }, side: { az: -Math.PI / 2, el: 0.08 }, top: { az: Math.PI, el: 1.55 } };
+const vaCam = { az: -1.0, el: 0.45, dist: 0.95, target: [0.14, 0, 0.13] };
+const vaShow = { target: true, solution: true, goal: true, trail: true };
+const vaTrail = { tool: [], target: [] };
+const GRIP_DEG = [-10, 100], IK_COL = "#f97316", PREVIEW_COL = "#7c3aed", IK_FRESH_S = 0.5, TRAIL_MAX = 400;
+const IK_FREE = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex"];
+const IK_AXES = [["x", -0.15, 0.5, 0.005, "m"], ["y", -0.45, 0.45, 0.005, "m"], ["z", -0.05, 0.45, 0.005, "m"], ["pitch", -90, 90, 1, "°"]];
+
+const vsub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const vdot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const vcross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const vnorm = (a) => { const l = Math.hypot(...a) || 1; return a.map(x => x / l); };
+const vdist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const m4mul = (a, b) => a.map(r => [0, 1, 2, 3].map(j => r[0] * b[0][j] + r[1] * b[1][j] + r[2] * b[2][j] + r[3] * b[3][j]));
+const m4pt = (t, v = [0, 0, 0]) => [0, 1, 2].map(i => t[i][0] * v[0] + t[i][1] * v[1] + t[i][2] * v[2] + t[i][3]);
+const rotz = (q) => { const c = Math.cos(q), s = Math.sin(q); return [[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]; };
+const fmtXyz = (p) => `x ${p[0].toFixed(3)}  y ${p[1].toFixed(3)}  z ${p[2].toFixed(3)} m`;
+const mm = (m) => m < 0.0001 ? "0.1 mm" : (m * 1000).toFixed(m < 0.01 ? 1 : 0) + " mm";
+function m4origin([x, y, z], [r, p, w]) {  // same as kinematics._origin: Trans(xyz) Rz(y) Ry(p) Rx(r)
+  const cr = Math.cos(r), sr = Math.sin(r), cp = Math.cos(p), sp = Math.sin(p), cy = Math.cos(w), sy = Math.sin(w);
+  return [[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr, x], [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr, y],
+          [-sp, cp * sr, cp * cr, z], [0, 0, 0, 1]];
+}
+
+async function loadKin() {
+  try {
+    const r = await fetch("/api/kinematics", { cache: "no-store" });
+    if (!r.ok) throw new Error();
+    KIN = await r.json();
+    KIN.O = KIN.chain.map(c => m4origin(...c));
+    KIN.T = m4origin(...KIN.tool);
+    KIN.G = m4origin(...KIN.gripper);
+    // moving jaw: in its own frame, the vector that puts its tip on the tool point at q = 0 (closed)
+    const d = vsub(KIN.tool[0], KIN.gripper[0]);
+    KIN.jaw = [0, 1, 2].map(j => KIN.G[0][j] * d[0] + KIN.G[1][j] * d[1] + KIN.G[2][j] * d[2]);
+  } catch (e) {
+    $("vaModeNote").textContent = "This arm_ui.py doesn't serve /api/kinematics. Restart it to use the virtual arm.";
+  }
+}
+
+function vaPose(deg) {  // deg: {joint name: degrees}. Returns the points to draw, in metres (URDF base frame).
+  let t = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+  const c0 = KIN.chain[0][0], pts = [[c0[0], c0[1], 0]];
+  KIN.order.forEach((n, k) => { t = m4mul(m4mul(t, KIN.O[k]), rotz((deg[n] || 0) * Math.PI / 180)); pts.push(m4pt(t)); });
+  const tt = m4mul(t, KIN.T), piv = m4mul(t, KIN.G);
+  const tool = m4pt(tt), dz = [tt[0][2], tt[1][2], tt[2][2]];
+  return { pts, tool, pivot: m4pt(piv), jaw: m4pt(m4mul(piv, rotz((deg.gripper || 0) * Math.PI / 180)), KIN.jaw),
+           pitch: Math.atan2(dz[2], Math.hypot(dz[0], dz[1])) * 180 / Math.PI };
+}
+
+function vaDegrees(s, which) {  // which: "pos", "goal" (falls back to pos) or "virtual" (the controller-driven virtual arm)
+  const out = {};
+  for (const m of s.motors) {
+    if (which === "virtual") { out[m.name] = (KIN.dir[m.name] ?? 1) * (s.remote.virtual[m.id] - s.center) / s.steps_per_deg; continue; }
+    const p = which === "goal" && m.torque && m.goal !== null ? m.goal : m.pos;
+    out[m.name] = m.online && p !== null ? (KIN.dir[m.name] ?? 1) * (p - s.center) / s.steps_per_deg : 0;
+  }
+  return out;
+}
+const vaVirtual = (s) => vaMode === "live" && s.remote && s.remote.drive === "virtual" && s.remote.virtual;  // controller drives the virtual arm
+
+function vaLimits(name) {
+  const k = KIN.order.indexOf(name);
+  return k < 0 ? GRIP_DEG : KIN.limits[k].map(r => Math.round(r * 1800 / Math.PI) / 10);
+}
+
+const vaIkLive = (s) => s.remote && s.remote.ik && s.remote.ik.age < 30 ? s.remote.ik : null;  // last Cartesian IK step
+
+function vaDraw() {
+  const cv = $("vaCanvas");
+  if (!KIN || !state || $("panel-virtual").hidden) return;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement), col = (v) => css.getPropertyValue(v).trim();
+
+  const { az, el, dist, target } = vaCam;
+  const eye = [target[0] + dist * Math.cos(el) * Math.cos(az), target[1] + dist * Math.cos(el) * Math.sin(az), target[2] + dist * Math.sin(el)];
+  const f = vnorm(vsub(target, eye)), r = vnorm(vcross(f, [0, 0, 1])), u = vcross(r, f);
+  const fl = Math.min(w, h) * 1.5;
+  const proj = (p) => { const d = vsub(p, eye), z = vdot(d, f); return [w / 2 + fl * vdot(d, r) / z, h / 2 - fl * vdot(d, u) / z, z]; };
+  const line = (a, b, color, width) => {
+    const pa = proj(a), pb = proj(b);
+    if (pa[2] < 0.03 || pb[2] < 0.03) return;
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+  };
+  const dot = (p, rad, fill, stroke) => {
+    const q = proj(p); if (q[2] < 0.03) return;
+    ctx.beginPath(); ctx.arc(q[0], q[1], rad, 0, 2 * Math.PI);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+  };
+  const path = (pts, color, dashed) => {
+    ctx.setLineDash(dashed ? [4, 4] : []);
+    for (let i = 1; i < pts.length; i++) line(pts[i - 1], pts[i], color, 1.5);
+    ctx.setLineDash([]);
+  };
+
+  // floor: 5 cm grid, base footprint, axes (x forward = red, y = green)
+  ctx.lineCap = "round";
+  for (let i = -6; i <= 10; i++) line([i * 0.05, -0.4, 0], [i * 0.05, 0.4, 0], col("--line"), 1);
+  for (let j = -8; j <= 8; j++) line([-0.3, j * 0.05, 0], [0.5, j * 0.05, 0], col("--line"), 1);
+  const c0 = KIN.chain[0][0];
+  ctx.fillStyle = col("--track"); ctx.beginPath();
+  for (let a = 0; a <= 24; a++) { const p = proj([c0[0] + 0.055 * Math.cos(a * Math.PI / 12), c0[1] + 0.055 * Math.sin(a * Math.PI / 12), 0]); a ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
+  ctx.fill();
+  line([0, 0, 0], [0.1, 0, 0], "#e5484d", 2); line([0, 0, 0], [0, 0.1, 0], "#30a46c", 2);
+
+  const drawArm = (pose, color, alpha, dashed) => {
+    const P = pose.pts, segs = [[P[0], P[1], 0.026], [P[1], P[2], 0.02], [P[2], P[3], 0.018], [P[3], P[4], 0.016],
+                                [P[4], P[5], 0.014], [P[5], pose.tool, 0.009], [pose.pivot, pose.jaw, 0.007]];
+    ctx.globalAlpha = alpha; ctx.setLineDash(dashed ? [6, 5] : []);
+    const shadow = [pose.tool[0], pose.tool[1], 0];  // drop line to the floor, for depth
+    line(pose.tool, shadow, col("--muted"), 1);
+    segs.map(sg => ({ sg, z: (proj(sg[0])[2] + proj(sg[1])[2]) / 2 })).sort((a, b) => b.z - a.z).forEach(({ sg }) => {
+      const z = (proj(sg[0])[2] + proj(sg[1])[2]) / 2;
+      line(sg[0], sg[1], color, Math.max(dashed ? 1.5 : 2, fl * sg[2] / z));
+    });
+    ctx.setLineDash([]);
+    if (!dashed) for (const p of P.slice(1).concat([pose.tool])) {
+      const q = proj(p); if (q[2] < 0.03) continue;
+      dot(p, Math.max(3, fl * 0.006 / q[2]), col("--card"), color);
+    }
+    dot(shadow, 3, col("--muted"));
+    ctx.globalAlpha = 1;
+  };
+
+  // IK target: crosshair + the tool direction it asks for (pitch, along the arm's heading)
+  const drawTarget = (t, reached, from) => {
+    const p = t.slice(0, 3), c = reached ? IK_COL : col("--bad"), k = 0.018;
+    line(p, [p[0], p[1], 0], c, 1);
+    dot([p[0], p[1], 0], 3, c);
+    if (from) { ctx.setLineDash([3, 3]); line(from, p, c, 1.5); ctx.setLineDash([]); }  // how far the tool is from it
+    line([p[0] - k, p[1], p[2]], [p[0] + k, p[1], p[2]], c, 2);
+    line([p[0], p[1] - k, p[2]], [p[0], p[1] + k, p[2]], c, 2);
+    line([p[0], p[1], p[2] - k], [p[0], p[1], p[2] + k], c, 2);
+    const hd = Math.atan2(p[1], p[0] - c0[0]), pt = t[3] * Math.PI / 180;
+    line(p, [p[0] + 0.05 * Math.cos(pt) * Math.cos(hd), p[1] + 0.05 * Math.cos(pt) * Math.sin(hd), p[2] + 0.05 * Math.sin(pt)], c, 2.5);
+    dot(p, 6, null, c);
+  };
+
+  const liveDeg = vaDegrees(state, "pos"), live = vaPose(liveDeg);
+  if (vaMode === "preview") {
+    drawArm(live, col("--muted"), 0.45, true);
+    const pv = vaPose(vaPreview);
+    drawArm(pv, PREVIEW_COL, 1, false);
+    if (vaKind === "ik" && vaIkTarget) drawTarget(vaIkTarget, !vaIkRes || vaIkRes.residual < 0.005, pv.tool);
+    return;
+  }
+  const ik = vaIkLive(state), virt = vaVirtual(state);
+  const armDeg = virt ? vaDegrees(state, "virtual") : liveDeg, arm = virt ? vaPose(armDeg) : live, armCol = virt ? PREVIEW_COL : col("--accent");
+  const hasGoal = !virt && state.motors.some(m => m.online && m.torque && m.goal !== null && Math.abs(m.goal - m.pos) > 3);
+  if (virt) drawArm(live, col("--muted"), 0.45, true);  // the real arm, untouched
+  if (vaShow.trail) { path(vaTrail.target, IK_COL, true); path(vaTrail.tool, armCol, false); }
+  if (vaShow.goal && hasGoal) drawArm(vaPose(vaDegrees(state, "goal")), col("--accent"), 0.35, true);
+  if (vaShow.solution && ik) drawArm(vaPose({ ...armDeg, ...ik.q }), IK_COL, 0.6, true);
+  drawArm(arm, armCol, 1, false);
+  if (vaShow.target && ik) drawTarget(ik.target, ik.reached, arm.tool);
+}
+
+function vaIkStatus(s, ik, live) {  // the Live mode IK panel: is Cartesian running, and how well is the arm following?
+  const r = s.remote;
+  if (!r) return "";
+  const fresh = ik && ik.age < IK_FRESH_S;
+  const st = r.style !== "cartesian" ? "Remote is in joint style, so no IK is running. Pick <b>Cartesian (IK)</b> above to see its target here. Choose <b>Virtual arm only</b> to try it without moving the real arm."
+    : !r.cart_ok ? `<span class="warn-txt">Cartesian control isn't available: ${r.cart_why}.</span>`
+    : !r.enabled ? `Cartesian is selected but remote mode is off. Press <b>Start</b> above${r.drive === "virtual" ? " (virtual arm only: the real arm won't move)" : ""}.`
+    : !r.armed ? "Release all sticks, triggers and buttons once, then push a stick."
+    : fresh ? `<span class="ok-txt">IK running</span>: the ${r.drive === "virtual" ? "virtual" : ""} arm is following the target.`
+    : "Cartesian ready. Push a stick and the target moves here.";
+  if (!ik) return `<p class="st">${st}</p>`;
+  const off = vdist(live.tool, ik.target), held = KIN.order.filter(n => IK_FREE.includes(n) && !ik.free.includes(n));
+  return `<p class="st">${st}${fresh ? "" : ` <span class="muted">Last IK step ${ik.age.toFixed(0)} s ago.</span>`}</p><dl>
+    <dt style="color:${IK_COL}">IK target</dt><dd>${fmtXyz(ik.target)} · pitch ${ik.target[3].toFixed(1)}°</dd>
+    <dt>IK solution</dt><dd>${ik.reached ? `<span class="ok-txt">reaches it</span> (within ${mm(ik.residual)})` : `<span class="warn-txt">out of reach</span>: closest is ${mm(ik.residual)} away, so the target is pulled back`}</dd>
+    <dt>${r.drive === "virtual" ? "Virtual tool" : "Arm tool now"}</dt><dd>${fmtXyz(live.tool)} · pitch ${live.pitch.toFixed(1)}°</dd>
+    <dt>Arm vs target</dt><dd class="${off > 0.03 ? "warn-txt" : ""}">${mm(off)} apart${off > 0.03 ? " (more than the 3 cm leash: the arm is lagging or blocked)" : ""}</dd>
+    <dt>IK moves</dt><dd>${ik.free.join(", ") || "nothing"}${held.length ? `; held: ${held.join(", ")}` : ""}</dd></dl>`;
+}
+
+function vaRender(s) {
+  if (!KIN) return;
+  if (!vaPreview) vaPreview = vaDegrees(s, "pos");
+  const preview = vaMode === "preview", ikMode = preview && vaKind === "ik";
+  document.querySelectorAll("#vaMode button").forEach(b => b.classList.toggle("active", b.dataset.mode === vaMode));
+  document.querySelectorAll("#vaPrevKind button").forEach(b => b.classList.toggle("active", b.dataset.kind === vaKind));
+  $("vaModeNote").textContent = !preview
+    ? (vaVirtual(s) ? "The controller drives the purple virtual arm. The real arm (grey, dashed) isn't touched."
+       : "Mirrors the arm's measured joint positions, about 10 times a second." + (s.sim ? " (This is the simulator's arm.)" : ""))
+    : ikMode ? "Move the target and the IK solves a pose for it, the same way Cartesian remote mode does. This never moves the real arm."
+    : "Set a pose with the sliders to see it on the virtual arm. This never moves the real arm.";
+  $("vaPrevOnly").hidden = !preview;
+  $("vaSliders").hidden = ikMode;
+  $("vaIkSliders").hidden = $("vaIkResult").hidden = !ikMode;
+  $("vaShow").style.display = preview ? "none" : "";
+  $("vaLegend").innerHTML = preview
+    ? `<span><i style="background:${PREVIEW_COL}"></i>preview pose</span><span><i style="background:var(--muted)"></i>arm now (dashed)</span>` +
+      (ikMode ? `<span><i style="background:${IK_COL}"></i>IK target (red = out of reach)</span>` : "")
+    : vaVirtual(s) ? `<span><i style="background:${PREVIEW_COL}"></i>virtual arm (controller)</span><span><i style="background:var(--muted)"></i>real arm (dashed)</span>` +
+      `<span><i style="background:${IK_COL}"></i>IK target and solved pose (red = out of reach)</span>`
+    : `<span><i style="background:var(--accent)"></i>measured arm</span><span><i style="background:var(--accent);opacity:.35"></i>goal sent to the motors</span>` +
+      `<span><i style="background:${IK_COL}"></i>IK target and solved pose (red = out of reach)</span>`;
+
+  const uncal = s.motors.filter(m => m.online && ((m.lo === 0 && m.hi === 4095) || (m.lo === 0 && m.hi === 0))).map(m => m.name);
+  const off = s.motors.filter(m => !m.online).map(m => m.name);
+  $("vaCalNote").innerHTML = [uncal.length ? `Not calibrated: <b>${uncal.join(", ")}</b>. Their angles are measured from raw step 2047, so the drawing won't match the real arm for them.` : "",
+                              off.length ? `Not answering, drawn at 0°: <b>${off.join(", ")}</b>.` : ""].filter(Boolean).join(" ");
+  $("vaCalNote").classList.toggle("show", uncal.length > 0 || off.length > 0);
+
+  const r = s.remote;
+  $("vaCtl").hidden = preview || !r;
+  if (r) {
+    document.querySelectorAll("#vaCtl .rm-drive button").forEach(b => { b.classList.toggle("active", b.dataset.drive === r.drive); b.disabled = r.enabled && b.dataset.drive !== r.drive; });
+    document.querySelectorAll("#vaStyle button").forEach(b => b.classList.toggle("active", b.dataset.style === r.style));
+    $("vaRemote").textContent = r.enabled ? "Stop remote" : r.drive === "virtual" ? "Start (virtual arm)" : "Start (moves the real arm)";
+    $("vaRemote").className = r.enabled ? "" : r.drive === "virtual" ? "primary" : "";
+  }
+  const virt = vaVirtual(s);
+  const liveDeg = vaDegrees(s, virt ? "virtual" : "pos"), live = vaPose(liveDeg), ik = preview ? null : vaIkLive(s);
+  if (ik && ik.age < IK_FRESH_S) {  // trail of the Cartesian moves: where the target went, and where the tool went
+    const add = (a, p) => { if (!a.length || vdist(a[a.length - 1], p) > 0.002) { a.push(p.slice(0, 3)); if (a.length > TRAIL_MAX) a.shift(); } };
+    add(vaTrail.target, ik.target); add(vaTrail.tool, live.tool);
+  }
+  $("vaIk").innerHTML = preview ? "" : vaIkStatus(s, ik, live);
+
+  const cell = (m, v) => {  // a reading outside the URDF range means the calibration or a direction is off
+    const [lo, hi] = vaLimits(m.name), out = v < lo - 2 || v > hi + 2;
+    return `<td class="num${out ? " warn-txt" : ""}"${out ? ` title="outside the URDF range ${lo}° to ${hi}°"` : ""}>${out ? "⚠ " : ""}${v.toFixed(1)}°</td>`;
+  };
+  const ikCells = (m) => {  // what the IK asked for, and how far the arm is from it
+    const q = ik.q[m.name];
+    if (q === undefined || !(m.online || virt)) return '<td class="num muted">—</td><td class="num muted">—</td>';
+    const d = liveDeg[m.name] - q;
+    return `<td class="num" style="color:${IK_COL}">${q.toFixed(1)}°</td><td class="num${Math.abs(d) > 3 ? " warn-txt" : ""}">${d >= 0 ? "+" : ""}${d.toFixed(1)}°</td>`;
+  };
+  $("vaTable").innerHTML = `<thead><tr><th>ID</th><th>Joint</th>${preview ? '<th class="num">Preview</th>' : ""}<th class="num">${preview ? "Arm now" : virt ? "Virtual" : "Arm"}</th>` +
+    (ik ? '<th class="num">IK</th><th class="num" title="arm minus IK">Δ</th>' : "") + "</tr></thead><tbody>" +
+    s.motors.map(m => `<tr><td class="num">${m.id}</td><td>${m.name}</td>` +
+      (preview ? `<td class="num">${vaPreview[m.name].toFixed(1)}°</td>` : "") +
+      (m.online || virt ? cell(m, liveDeg[m.name]) : '<td class="num muted">—</td>') + (ik ? ikCells(m) : "") + "</tr>").join("") + "</tbody>";
+  const p = preview ? vaPose(vaPreview) : live;
+  $("vaTool").textContent = `${preview ? "Preview" : virt ? "Virtual" : "Arm"} tool point  ${fmtXyz(p.tool)}  · pitch ${p.pitch.toFixed(1)}°`;
+  if (ikMode) $("vaIkResult").innerHTML = !vaIkRes ? "" : vaIkRes.residual < 0.005
+    ? `<span class="ok-txt">Reachable.</span> The IK lands within ${mm(vaIkRes.residual)} of the target.`
+    : `<span class="warn-txt">Out of reach.</span> The closest pose the IK finds is ${mm(vaIkRes.residual)} from the target. In remote mode the target would be pulled back to it.`;
+  vaDraw();
+}
+
+function vaBuildSliders() {
+  if (!KIN || !state) return;
+  $("vaSliders").innerHTML = state.motors.map(m => {
+    const [lo, hi] = vaLimits(m.name);
+    return `<label class="va-sl"><span>${m.name}</span><input type="range" min="${lo}" max="${hi}" step="0.5" data-joint="${m.name}"><b></b></label>`;
+  }).join("");
+  $("vaSliders").querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
+    vaPreview[inp.dataset.joint] = Number(inp.value); vaSyncSliders(); vaRender(state);
+  }));
+  $("vaIkSliders").innerHTML = IK_AXES.map(([k, lo, hi, step]) =>
+    `<label class="va-sl"><span>target ${k}</span><input type="range" min="${lo}" max="${hi}" step="${step}" data-axis="${k}"><b></b></label>`).join("");
+  $("vaIkSliders").querySelectorAll("input").forEach((inp, i) => inp.addEventListener("input", () => {
+    vaIkTarget[i] = Number(inp.value); vaSyncSliders(); vaSolve();
+  }));
+  vaSyncSliders();
+}
+function vaSyncSliders() {
+  $("vaSliders").querySelectorAll("input").forEach(inp => {
+    const [lo, hi] = vaLimits(inp.dataset.joint);
+    vaPreview[inp.dataset.joint] = Math.max(lo, Math.min(hi, vaPreview[inp.dataset.joint] || 0));
+    inp.value = vaPreview[inp.dataset.joint]; inp.nextElementSibling.textContent = vaPreview[inp.dataset.joint].toFixed(1) + "°";
+  });
+  if (vaIkTarget) $("vaIkSliders").querySelectorAll("input").forEach((inp, i) => {
+    inp.value = vaIkTarget[i];
+    inp.nextElementSibling.textContent = i < 3 ? vaIkTarget[i].toFixed(3) : vaIkTarget[i].toFixed(0) + "°";
+  });
+}
+function vaTargetFromPose() {  // the target the current preview pose already reaches
+  const p = vaPose(vaPreview);
+  vaIkTarget = [...p.tool, p.pitch];
+  vaIkRes = null;
+}
+async function vaSolve() {  // one request in flight at a time; the latest target wins
+  if (vaIkBusy) { vaIkAgain = true; return; }
+  vaIkBusy = true;
+  const r = await api("ik_solve", { q: vaPreview, target: vaIkTarget, free: IK_FREE });
+  vaIkBusy = false;
+  if (r.ok) { Object.assign(vaPreview, r.q); vaIkRes = r; vaSyncSliders(); vaRender(state); }
+  if (vaIkAgain) { vaIkAgain = false; vaSolve(); }
+}
+
+document.querySelectorAll("#vaStyle button").forEach(b => b.addEventListener("click", () => api("remote_style", { style: b.dataset.style })));
+$("vaRemote").addEventListener("click", () => api(state.remote.enabled ? "remote_disable" : "remote_enable"));
+document.querySelectorAll("#vaMode button").forEach(b => b.addEventListener("click", () => {
+  vaMode = b.dataset.mode;
+  if (vaMode === "preview" && !$("vaSliders").children.length) vaBuildSliders();
+  if (state) vaRender(state);
+}));
+document.querySelectorAll("#vaPrevKind button").forEach(b => b.addEventListener("click", () => {
+  vaKind = b.dataset.kind;
+  if (vaKind === "ik") { vaTargetFromPose(); vaSyncSliders(); }
+  vaRender(state);
+}));
+$("vaCopy").addEventListener("click", () => { vaPreview = vaDegrees(state, "pos"); vaTargetFromPose(); vaSyncSliders(); vaRender(state); });
+$("vaZero").addEventListener("click", () => { for (const k in vaPreview) vaPreview[k] = 0; vaTargetFromPose(); vaSyncSliders(); vaRender(state); });
+$("vaShow").querySelectorAll("input").forEach(inp => inp.addEventListener("change", () => { vaShow[inp.dataset.show] = inp.checked; vaDraw(); }));
+$("vaClearTrail").addEventListener("click", () => { vaTrail.tool.length = vaTrail.target.length = 0; vaDraw(); });
+document.querySelectorAll(".va-views button").forEach(b => b.addEventListener("click", () => { Object.assign(vaCam, VA_VIEWS[b.dataset.view]); vaDraw(); }));
+(() => {
+  const cv = $("vaCanvas"); let drag = null;
+  cv.addEventListener("pointerdown", e => { drag = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", e => {
+    if (!drag) return;
+    vaCam.az -= (e.clientX - drag[0]) * 0.01;
+    vaCam.el = Math.max(-0.15, Math.min(1.55, vaCam.el + (e.clientY - drag[1]) * 0.01));
+    drag = [e.clientX, e.clientY]; vaDraw();
+  });
+  cv.addEventListener("pointerup", () => drag = null);
+  cv.addEventListener("wheel", e => { e.preventDefault(); vaCam.dist = Math.max(0.35, Math.min(2.5, vaCam.dist * Math.exp(e.deltaY * 0.001))); vaDraw(); }, { passive: false });
+  window.addEventListener("resize", vaDraw);
+})();
+
+const TABS = { control: "", remote: "#remote", virtual: "#virtual", cal: "#calibration" };
 function setTab(t) {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === t));
   $("panel-control").hidden = t !== "control";
   $("panel-remote").hidden = t !== "remote";
+  $("panel-virtual").hidden = t !== "virtual";
   $("panel-cal").hidden = t !== "cal";
   document.body.classList.toggle("on-cal", t === "cal");
   history.replaceState(null, "", TABS[t] || "#");
+  if (t === "virtual" && state) vaRender(state);
 }
 document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
-setTab(location.hash === "#calibration" ? "cal" : location.hash === "#remote" ? "remote" : "control");
+setTab(location.hash === "#calibration" ? "cal" : location.hash === "#remote" ? "remote" : location.hash === "#virtual" ? "virtual" : "control");
 
 async function poll() {
   try {
     const r = await fetch("/api/state", { cache: "no-store" });
     state = await r.json(); render(state);
     if (state.remote) renderRemote(state);
+    if (!$("panel-virtual").hidden) vaRender(state);
   } catch (e) {
     $("conndot").className = "dot off"; $("conntext").textContent = "server not running";
   }
@@ -721,7 +1184,7 @@ window.addEventListener("keydown", e => {
   if (e.key === "Escape") { e.preventDefault(); api("limp"); }
   else if (e.key === " " && !["BUTTON", "INPUT"].includes(e.target.tagName) && !document.body.classList.contains("on-cal")) { e.preventDefault(); api("hold"); }
 });
-poll();
+loadKin().then(poll);
 </script>
 </body>
 </html>

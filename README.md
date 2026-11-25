@@ -58,7 +58,7 @@ python arm_ui.py --sim       # same UI with a simulated arm, no hardware (port 8
 | `so101_calibrate.py` | Command-line calibration like `lerobot-calibrate`. Writes LeRobot-format JSON. |
 | `joint_limits.py` | Read-only: design limits vs each motor's limit window; `--measure` records real ranges by hand. |
 | `test_servos.py` | Nudges each servo and back, one at a time, and reports OK / STALLED / FAIL from the measured position. |
-| `arm_ui.py` + `arm_ui.html` | Local web panel: per-joint torque, sliders, jog buttons, live load/temperature/voltage, calibration wizard, remote tab. |
+| `arm_ui.py` + `arm_ui.html` | Local web panel: per-joint torque, sliders, jog buttons, live load/temperature/voltage, calibration wizard, remote tab, virtual 3D arm (`#virtual`). |
 | `remote.py` | PS4 controller control (used by the panel). |
 | `kinematics.py` | Forward kinematics and damped-least-squares IK from the SO-101 URDF geometry. |
 | `pad_check.py`, `dir_check.py` | Read-only helpers: check the controller's button mapping, and check each motor's direction against the kinematics. |
@@ -73,8 +73,35 @@ python arm_ui.py --sim       # same UI with a simulated arm, no hardware (port 8
 - **Control:** one card per motor with torque switch, position slider, jog buttons, and live load, temperature, voltage and speed. Top bar: speed, Torque on all, Hold all (Space), Torque off all (Esc).
 - **Calibration:** the same procedure as LeRobot, for all joints or one at a time: torque off, set the middle pose, move each joint through its range, save. The ranges go to the motors' limit registers and a JSON file (LeRobot format) goes to the LeRobot cache and `calibration/`.
 - **Remote:** controller mode, below.
+- **Virtual arm:** a live 3D view of the arm and of what the IK is asking for, below.
 
 Safety rules enforced server-side: torque-on is refused above 8.4 V or if a joint is outside its limit window; torque-on first sets the goal to the current position so nothing jumps; goals are clamped into the limit window; all motion is blocked while a calibration runs. The `--sim` mode shows a purple banner so you can't mistake it for the real arm.
+
+## Virtual arm
+
+![Cartesian control in the simulator: the measured arm (blue) follows the IK target (orange crosshair), and the trail shows the path the target and the tool took](docs/images/virtual-arm-ik-live.png)
+
+**Why it's here:** in Cartesian mode you push a stick and the IK quietly turns that into four joint angles. Whether the arm actually gets there depends on calibration, on each motor's direction, and on whether the low-torque 1:147 motors can hold the pose against gravity. The Virtual arm tab puts the pose the IK *wants* and the pose the arm *actually reached* in one 3D scene. When they drift apart, you can see it straight away and tell which joint is lagging, instead of guessing from the arm and a column of numbers.
+
+The tab (`#virtual`) is drawn from the SO-101 URDF with the same kinematics as Cartesian mode. Drag to orbit, scroll to zoom. Nothing on it sends a command except its Start / Stop remote button.
+
+- **Live from arm** draws:
+  - the measured arm, solid;
+  - the IK target, an orange crosshair with an arrow for the tool angle, red when it's out of reach;
+  - the IK's solved pose, dashed orange;
+  - the goal sent to the motors, faint blue;
+  - a trail of the target and tool paths.
+
+  The side panel reports how far the tool is from the target, whether the IK reached it, which joints it moves, and each joint's IK angle against its measured angle (Δ).
+- **Virtual arm only:** the controller drives a virtual copy of the arm (purple), starting from the real arm's pose, while the real arm (grey, dashed) stays exactly where it is. Nothing is written to the motors. This is a safe way to learn the Cartesian controls, or to check what a move would do before trying it on the hardware.
+
+  ![Virtual arm only: the controller drives the purple virtual arm along the IK target; the real arm, grey and dashed, doesn't move](docs/images/virtual-arm-controller.png)
+
+- **Preview only:** pose the virtual arm with joint sliders, or set an **IK target** (x, y, z, tool angle) and see the pose the IK picks for it, and whether it can reach it at all.
+
+  ![Preview with an IK target out of reach: the arm stretches as far as it can and the target turns red, 23 mm short](docs/images/virtual-arm-ik-preview.png)
+
+The screenshots come from the simulator (`--sim`) with a scripted controller. The angles shown are (position − 2047) / 11.38, so the drawing only matches the real arm for calibrated joints.
 
 ## Calibration
 
@@ -97,12 +124,14 @@ Open the **Remote** tab, set each joint to **Active** (the stick drives it), **H
 | D-pad ↑ / ↓ | speed scale |
 | PS | hold all joints |
 | Options | all joints limp, remote mode off |
-| Sticks | **Joint style:** left X/Y = base/shoulder, right Y/X = elbow/wrist pitch. **Cartesian style:** left stick = tool forward/back and left/right, right Y = up/down, right X = tool pitch |
+| Sticks | **Joint style:** left X/Y = base/shoulder, right Y/X = elbow/wrist pitch. **Cartesian style:** left stick = gripper left/right and up/down, right Y = forward/back, right X = tilt gripper left/right (wrist roll); the tool angle is held automatically |
 
 - There is no deadman button. After starting, nothing moves until every stick and trigger has been seen at rest. Losing the controller holds all joints.
 - **Cartesian (IK)** solves tool position and pitch over the pan, shoulder, elbow and wrist-flex joints, using only the Active ones; Hold joints stay fixed. It is refused until the arm is calibrated.
+- **Real arm / Virtual arm only:** with *Virtual arm only*, the controller drives just the virtual arm on the Virtual arm tab and sends nothing to the motors. Switch it while remote mode is stopped.
 - A joint at 55 °C stops being driven and one at 65 °C goes limp.
-- The mapping is for a DualShock 4 as seen by `pygame` on Windows. Joint directions (`SIGN` and `DIR` in `remote.py`) were checked by hand for Cartesian control; gripper and roll directions still need checking on the arm. Run `pad_check.py` and `dir_check.py` if you change controller or arm.
+- **Calibrate the controller first:** the button and axis numbers differ between Windows and Linux (and the D-pad may be a hat). On the Remote tab, press *Calibrate controller* (remote mode must be off) and follow the prompts; the mapping is saved to `calibration/pad.json`. Without it, the built-in Linux DualShock 4 defaults are used.
+- Joint directions (`SIGN` and `DIR` in `remote.py`) were checked by hand for Cartesian control; gripper and roll directions still need checking on the arm. Run `pad_check.py` and `dir_check.py` if you change controller or arm.
 
 ## Tests
 
